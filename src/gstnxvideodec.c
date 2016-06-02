@@ -483,11 +483,15 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	ret = VideoDecodeFrame(pNxVideoDec->pNxVideoDecHandle, pFrame->input_buffer, &decOut);
 
 	gst_buffer_unmap (pFrame->input_buffer, &mapInfo);
-
-	if( (ret != 0) || (decOut.dispIdx < 0) )
+	if( 0 > ret )
 	{
-		ret = gst_video_decoder_drop_frame(pDecoder, pFrame);
-		return ret;
+		GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp);
+		return gst_video_decoder_drop_frame(pDecoder, pFrame);
+	}
+
+	if( decOut.dispIdx < 0 )
+	{
+		return GST_FLOW_OK;
 	}
 
 	if( 1 == pNxVideoDec->bufferType )
@@ -534,6 +538,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		pFrame->output_buffer = pDecOutBuffer->pGstBuffer;
 
 		GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp);
+		pFrame->pts = timeStamp;
 		GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
 	}
 	else
@@ -561,6 +566,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		}
 
 		GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp);
+		pFrame->pts = timeStamp;
 		GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
 
 		pImg = &decOut.hImg;
