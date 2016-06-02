@@ -386,7 +386,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.height = seqOut.height;
 		seqIn.numBuffers = pHDec->bufferCountActual;
 		seqIn.imgPlaneNum = 3;
-		seqIn.imgFormat = seqOut.imgFourCC;		
+		seqIn.imgFormat = seqOut.imgFourCC;
 		ret = NX_V4l2DecInit( pHDec->hCodec, &seqIn );
 
 		pHDec->minRequiredFrameBuffer = seqOut.minBuffers;
@@ -680,7 +680,7 @@ static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *p
 	}
 	else
 	{
-		if( h264Info->eStreamType == NX_H264_STREAM_AVCC )
+		if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
 		{
 			pDecBuf = pHDec->pTmpStrmBuf;
 			decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, MAX_INPUT_BUF_SIZE, &isKey );
@@ -1042,6 +1042,6 @@ gboolean VDecSemSignal( NX_VDEC_SEMAPHORE *pSem )
 	pthread_mutex_lock( &pSem->mutex );
 	pthread_cond_signal( &pSem->cond );
 	pthread_mutex_unlock( &pSem->mutex );
-	FUNC_OUT();	
+	FUNC_OUT();
 	return TRUE;
 }
