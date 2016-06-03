@@ -78,7 +78,7 @@ typedef struct _GstNxDecOutBuffer GstNxDecOutBuffer;
 #include <mm_types.h>
 #include "decoder.h"
 
-struct _GstNxDecOutBuffer 
+struct _GstNxDecOutBuffer
 {
 	GstBuffer *pGstBuffer;
 	gint v4l2BufferIdx;
@@ -91,7 +91,7 @@ struct _GstNxVideoDec
 	NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle;
 	// video state
 	GstVideoCodecState *pInputState;
-	gint	bufferType;
+	gboolean accelerable;
 	gint	isState;
 	pthread_mutex_t		mutex;
 };
