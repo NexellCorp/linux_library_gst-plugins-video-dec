@@ -451,6 +451,12 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 	gst_video_codec_state_unref( pOutputState );
 
 	pNxVideoDec->accelerable = is_buffer_accelerable( pDecoder );
+	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 3;
+	if( pNxVideoDec->accelerable )
+	{
+		pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 1;
+		g_print(">>>>> Accelerable.\n");
+	}
 
 	ret = gst_video_decoder_negotiate( pDecoder );
 
@@ -598,8 +604,9 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 
 		pImg = &decOut.hImg;
 		pPtr = GST_VIDEO_FRAME_COMP_DATA (&videoFrame, 0);
-			CopyImageToBufferYV12( (guint8*)pImg->pBuffer[0], (guint8*)pImg->pBuffer[1], (guint8*)pImg->pBuffer[2],
-				pPtr, pImg->stride[0], pImg->stride[1], pNxVideoDec->pNxVideoDecHandle->width, pNxVideoDec->pNxVideoDecHandle->height );
+
+		CopyImageToBufferYV12( (guint8*)pImg->pBuffer[0], (guint8*)pImg->pBuffer[1], (guint8*)pImg->pBuffer[2],
+			pPtr, pImg->stride[0], pImg->stride[1], pNxVideoDec->pNxVideoDecHandle->width, pNxVideoDec->pNxVideoDecHandle->height );
 
 		DisplayDone( pNxVideoDec->pNxVideoDecHandle, decOut.dispIdx );
 
@@ -671,25 +678,47 @@ static GstMemory *nxvideodec_copy_data(NX_V4L2DEC_OUT *pDecOut)
 
 	memset((void*)pMMVideoBuf, 0, sizeof(MMVideoBuffer));
 
-	pMMVideoBuf->type = MM_VIDEO_BUFFER_TYPE_GEM;
-	pMMVideoBuf->format = MM_PIXEL_FORMAT_I420;
-	pMMVideoBuf->plane_num = 3;
-	pMMVideoBuf->width[0] = pDecOut->hImg.width;
-	pMMVideoBuf->height[0] = pDecOut->hImg.height;
-	pMMVideoBuf->stride_width[0] = pDecOut->hImg.stride[0];
-	pMMVideoBuf->stride_width[1] = pDecOut->hImg.stride[1];
-	pMMVideoBuf->stride_width[2] = pDecOut->hImg.stride[2];
-	pMMVideoBuf->size[0] = pDecOut->hImg.size[0];
-	pMMVideoBuf->size[1] = pDecOut->hImg.size[1];
-	pMMVideoBuf->size[2] = pDecOut->hImg.size[2];
-	pMMVideoBuf->data[0] = pDecOut->hImg.pBuffer[0];
-	pMMVideoBuf->data[1] = pDecOut->hImg.pBuffer[1];
-	pMMVideoBuf->data[2] = pDecOut->hImg.pBuffer[2];
-	pMMVideoBuf->handle_num = 3;
-	pMMVideoBuf->handle.gem[0] = pDecOut->hImg.flink[0];
-	pMMVideoBuf->handle.gem[1] = pDecOut->hImg.flink[1];
-	pMMVideoBuf->handle.gem[2] = pDecOut->hImg.flink[2];
-	pMMVideoBuf->buffer_index = pDecOut->dispIdx;
+	if( 1 == pDecOut->hImg.planes)
+	{
+		pMMVideoBuf->type = MM_VIDEO_BUFFER_TYPE_GEM;
+		pMMVideoBuf->format = MM_PIXEL_FORMAT_I420;
+		pMMVideoBuf->plane_num = 3;
+		pMMVideoBuf->width[0] = pDecOut->hImg.width;
+		pMMVideoBuf->height[0] = pDecOut->hImg.height;
+		pMMVideoBuf->stride_width[0] = GST_ROUND_UP_32(pDecOut->hImg.stride[0]);
+		pMMVideoBuf->stride_width[1] = GST_ROUND_UP_16(pMMVideoBuf->stride_width[0] >> 1);
+		pMMVideoBuf->stride_width[2] = pMMVideoBuf->stride_width[1];
+		pMMVideoBuf->stride_height[0] = GST_ROUND_UP_16(pDecOut->hImg.height);
+		pMMVideoBuf->stride_height[1] = GST_ROUND_UP_16(pDecOut->hImg.height >> 1);
+		pMMVideoBuf->stride_height[2] = pMMVideoBuf->stride_height[1];
+		pMMVideoBuf->size[0] = pDecOut->hImg.size[0];
+		pMMVideoBuf->data[0] = pDecOut->hImg.pBuffer[0];
+		pMMVideoBuf->handle_num = 1;
+		pMMVideoBuf->handle.gem[0] = pDecOut->hImg.flink[0];
+		pMMVideoBuf->buffer_index = pDecOut->dispIdx;
+	}
+	else if( 3 == pDecOut->hImg.planes)
+	{
+		pMMVideoBuf->type = MM_VIDEO_BUFFER_TYPE_GEM;
+		pMMVideoBuf->format = MM_PIXEL_FORMAT_I420;
+		pMMVideoBuf->plane_num = 3;
+		pMMVideoBuf->width[0] = pDecOut->hImg.width;
+		pMMVideoBuf->height[0] = pDecOut->hImg.height;
+		pMMVideoBuf->stride_width[0] = pDecOut->hImg.stride[0];
+		pMMVideoBuf->stride_width[1] = pDecOut->hImg.stride[1];
+		pMMVideoBuf->stride_width[2] = pDecOut->hImg.stride[2];
+		pMMVideoBuf->size[0] = pDecOut->hImg.size[0];
+		pMMVideoBuf->size[1] = pDecOut->hImg.size[1];
+		pMMVideoBuf->size[2] = pDecOut->hImg.size[2];
+		pMMVideoBuf->data[0] = pDecOut->hImg.pBuffer[0];
+		pMMVideoBuf->data[1] = pDecOut->hImg.pBuffer[1];
+		pMMVideoBuf->data[2] = pDecOut->hImg.pBuffer[2];
+		pMMVideoBuf->handle_num = 3;
+		pMMVideoBuf->handle.gem[0] = pDecOut->hImg.flink[0];
+		pMMVideoBuf->handle.gem[1] = pDecOut->hImg.flink[1];
+		pMMVideoBuf->handle.gem[2] = pDecOut->hImg.flink[2];
+		pMMVideoBuf->buffer_index = pDecOut->dispIdx;
+	}
 
 	pMeta = gst_memory_new_wrapped(GST_MEMORY_FLAG_READONLY,
 						pMMVideoBuf,

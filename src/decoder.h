@@ -71,6 +71,7 @@ struct _NX_VIDEO_DEC_STRUCT
 	gint bufferCountActual;
 	gint minRequiredFrameBuffer;
 	gboolean bFlush;
+	gint imgPlaneNum;
 
 	gint (*DecodeFrame)( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut  );
 
