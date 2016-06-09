@@ -677,6 +677,10 @@ static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *p
 		decIn.eos = 0;
 		VDecSemPend(pHDec->pSem);
 		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
 	}
 	else
 	{
@@ -698,6 +702,10 @@ static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *p
 		decIn.eos = 0;
 		VDecSemPend(pHDec->pSem);
 		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
 	}
 
 AVCDecode_Exit:
@@ -801,6 +809,10 @@ static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer 
 		decIn.eos = 0;
 		VDecSemPend(pHDec->pSem);
 		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
 	}
 
 Mpeg2Decode_Exit:
@@ -900,6 +912,10 @@ static gint Mpeg4DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer 
 		decIn.eos = 0;
 		VDecSemPend(pHDec->pSem);
 		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
 	}
 
 Mpeg4Decode_Exit:
