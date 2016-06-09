@@ -79,7 +79,7 @@ static gboolean gst_nxvideodec_start (GstVideoDecoder * decoder);
 static gboolean gst_nxvideodec_stop (GstVideoDecoder * decoder);
 static gboolean gst_nxvideodec_set_format (GstVideoDecoder * decoder,
 		GstVideoCodecState * state);
-static gboolean gst_nxvideodec_reset (GstVideoDecoder * decoder, gboolean hard);
+static gboolean gst_nxvideodec_flush (GstVideoDecoder * decoder);
 static GstFlowReturn gst_nxvideodec_handle_frame (GstVideoDecoder * decoder,
 		GstVideoCodecFrame * frame);
 static void nxvideodec_base_init (gpointer gclass);
@@ -210,7 +210,7 @@ gst_nxvideodec_class_init (GstNxVideoDecClass * pKlass)
 	pVideoDecoderClass->stop = GST_DEBUG_FUNCPTR (gst_nxvideodec_stop);
 
 	pVideoDecoderClass->set_format = GST_DEBUG_FUNCPTR (gst_nxvideodec_set_format);
-	pVideoDecoderClass->reset = GST_DEBUG_FUNCPTR (gst_nxvideodec_reset);
+	pVideoDecoderClass->flush = GST_DEBUG_FUNCPTR (gst_nxvideodec_flush);
 	pVideoDecoderClass->handle_frame = GST_DEBUG_FUNCPTR (gst_nxvideodec_handle_frame);
 
 	FUNC_OUT();
@@ -477,9 +477,8 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 }
 
 static gboolean
-gst_nxvideodec_reset (GstVideoDecoder *pDecoder, gboolean hard)
+gst_nxvideodec_flush (GstVideoDecoder *pDecoder)
 {
-#if 0
 	GstNxVideoDec *pNxvideodec = GST_NXVIDEODEC (pDecoder);
 
 	FUNC_IN();
@@ -490,7 +489,6 @@ gst_nxvideodec_reset (GstVideoDecoder *pDecoder, gboolean hard)
 	}
 
 	FUNC_OUT();
-#endif
 
 	return TRUE;
 }
