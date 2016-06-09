@@ -514,16 +514,22 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	ret = VideoDecodeFrame(pNxVideoDec->pNxVideoDecHandle, pFrame->input_buffer, &decOut);
 
 	gst_buffer_unmap (pFrame->input_buffer, &mapInfo);
-	if( 0 > ret )
+	if( DEC_ERR == ret )
 	{
 		GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp);
 		return gst_video_decoder_drop_frame(pDecoder, pFrame);
+	}
+	else if( DEC_INIT_ERR == ret )
+	{
+		return GST_FLOW_ERROR;
 	}
 
 	if( decOut.dispIdx < 0 )
 	{
 		return GST_FLOW_OK;
 	}
+
+	GST_DEBUG_OBJECT( pNxVideoDec, " decOut.dispIdx: %d\n",decOut.dispIdx );
 
 	if( TRUE == pNxVideoDec->accelerable )
 	{
@@ -630,6 +636,7 @@ static void nxvideodec_buffer_finalize(GstNxDecOutBuffer *pBuffer)
 		pthread_mutex_lock( &pBuffer->pNxVideoDec->mutex );
 		if( PLAY == pBuffer->pNxVideoDec->isState )
 		{
+			GST_DEBUG_OBJECT( pBuffer->pNxVideoDec, "v4l2BufferIdx: %d\n",pBuffer->v4l2BufferIdx );
 			ret = DisplayDone( pBuffer->pNxVideoDec->pNxVideoDecHandle, pBuffer->v4l2BufferIdx );
 			if ( ret )
 			{

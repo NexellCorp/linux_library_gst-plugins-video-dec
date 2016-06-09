@@ -378,7 +378,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 
 		if ( 0 != (ret = NX_V4l2DecParseVideoCfg( pHDec->hCodec, &seqIn, &seqOut )) )
 		{
-			g_print("%s : NX_V4l2DecParseVideoCfg() is failed!!\n", __func__);
+			g_print("NX_V4l2DecParseVideoCfg() is failed!!, ret = %d\n", ret);
 			return ret;
 		}
 
@@ -388,6 +388,11 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.imgPlaneNum = pHDec->imgPlaneNum;
 		seqIn.imgFormat = seqOut.imgFourCC;
 		ret = NX_V4l2DecInit( pHDec->hCodec, &seqIn );
+
+		if( 0 != ret)
+		{
+			g_print("NX_V4l2DecInit() is failed!!, ret = %d\n", ret);
+		}
 
 		pHDec->minRequiredFrameBuffer = seqOut.minBuffers;
 		pHDec->pSem = VDecSemCreate( pHDec->bufferCountActual );
@@ -666,6 +671,7 @@ static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *p
 			g_print("VPU initialized Failed!!!!\n");
 			NX_V4l2DecClose( pNxVideoDecHandle->hCodec );
 			pNxVideoDecHandle->hCodec = NULL;
+			ret = DEC_INIT_ERR;
 			goto AVCDecode_Exit;
 		}
 
@@ -680,6 +686,12 @@ static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *p
 		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
 		{
 			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
 		}
 	}
 	else
@@ -705,6 +717,12 @@ static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *p
 		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
 		{
 			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
 		}
 	}
 
@@ -791,6 +809,7 @@ static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer 
 			g_print("VPU initialized Failed!!!!\n");
 			NX_V4l2DecClose( pNxVideoDecHandle->hCodec );
 			pNxVideoDecHandle->hCodec = NULL;
+			ret = DEC_INIT_ERR;
 			goto Mpeg2Decode_Exit;
 
 		}
@@ -812,6 +831,12 @@ static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer 
 		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
 		{
 			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
 		}
 	}
 
@@ -895,6 +920,7 @@ static gint Mpeg4DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer 
 			g_print("VPU initialized Failed!!!!\n");
 			NX_V4l2DecClose( pNxVideoDecHandle->hCodec );
 			pNxVideoDecHandle->hCodec = NULL;
+			ret = DEC_INIT_ERR;
 			goto Mpeg4Decode_Exit;
 
 		}
@@ -915,6 +941,12 @@ static gint Mpeg4DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer 
 		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
 		{
 			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
 		}
 	}
 

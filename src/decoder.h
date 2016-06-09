@@ -20,6 +20,12 @@ G_BEGIN_DECLS
 #define	NX_MAX_HEIGHT		1088
 #define	NX_MAX_BUF			32
 
+enum
+{
+	DEC_INIT_ERR	= -1,
+	DEC_ERR			= -2,
+};
+
 typedef enum
 {
 	NX_H264_STREAM_UNKNOWN,
