@@ -16,16 +16,15 @@ libgstnxvideodec_la_SOURCES = gstnxvideodec.c decoder.c
 # compiler and linker flags used to compile this plugin, set in configure.ac
 libgstnxvideodec_la_CFLAGS = \
 	$(GST_CFLAGS)		\
-	-I../../sysroot/include
-	
+	-I$(includedir)
+
 libgstnxvideodec_la_LIBADD = \
 	$(GST_LIBS)			\
 	-lgstvideo-1.0		\
 	-lgstpbutils-1.0	\
-	-L../../sysroot/lib	\
 	-lnx_video_api
 
-libgstnxvideodec_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
+libgstnxvideodec_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -L$(libdir)
 libgstnxvideodec_la_LIBTOOLFLAGS = --tag=disable-static
 
 # headers we need but don't want installed
