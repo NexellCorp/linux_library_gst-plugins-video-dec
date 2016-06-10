@@ -308,8 +308,12 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 	pNxVideoDec->isState = STOP;
 	pthread_mutex_unlock( &pNxVideoDec->mutex );
 
-	VDecSemSignal( pNxVideoDec->pNxVideoDecHandle->pSem );
-	VDecSemDestroy( pNxVideoDec->pNxVideoDecHandle->pSem );
+	if( pNxVideoDec->pNxVideoDecHandle->pSem )
+	{
+		VDecSemSignal( pNxVideoDec->pNxVideoDecHandle->pSem );
+		VDecSemDestroy( pNxVideoDec->pNxVideoDecHandle->pSem );
+		pNxVideoDec->pNxVideoDecHandle->pSem = NULL;
+	}
 
 	if (pNxVideoDec->pNxVideoDecHandle)
 	{

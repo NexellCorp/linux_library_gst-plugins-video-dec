@@ -1024,7 +1024,7 @@ static gint PopVideoTimeStamp(NX_VIDEO_DEC_STRUCT *hDec, gint64 *pTimestamp, gui
 	}
 	else
 	{
-		g_print("Cannot Found Time Stamp!!!\n");
+//		g_print("Cannot Found Time Stamp!!!\n");
 		return -1;
 	}
 }
