@@ -221,10 +221,6 @@ gst_nxvideodec_init (GstNxVideoDec *pNxVideoDec)
 {
 	FUNC_IN();
 
-	gst_video_decoder_set_packetized (GST_VIDEO_DECODER (pNxVideoDec), TRUE);
-	gst_video_decoder_set_needs_format (GST_VIDEO_DECODER (pNxVideoDec), TRUE);
-	gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST(pNxVideoDec), TRUE);
-
 	// Initialize variables
 	pNxVideoDec->pNxVideoDecHandle = NULL;
 	pNxVideoDec->accelerable = FALSE;
