@@ -79,8 +79,6 @@ struct _NX_VIDEO_DEC_STRUCT
 	gboolean bFlush;
 	gint imgPlaneNum;
 
-	gint (*DecodeFrame)( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut  );
-
 	//	Temporal Buffer
 	guint8 *pTmpStrmBuf;
 	gint tmpStrmBufSize;
@@ -106,7 +104,7 @@ gboolean GetExtraInfo( NX_VIDEO_DEC_STRUCT *pDecHandle, guint8 *pCodecData, gint
 //Video Decoder
 NX_VIDEO_DEC_STRUCT *OpenVideoDec();
 gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle );
-gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pOutDecOut );
+gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle );
 
 gint DisplayDone( NX_VIDEO_DEC_STRUCT *pDecHandle, gint v4l2BufferIdx );

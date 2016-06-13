@@ -500,6 +500,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	gint64 timeStamp = 0;
 	GstMapInfo mapInfo;
 	gint ret;
+	gboolean bKeyFrame = FALSE;
 
 	FUNC_IN();
 
@@ -510,7 +511,9 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		return GST_FLOW_ERROR;
 	}
 
-	ret = VideoDecodeFrame(pNxVideoDec->pNxVideoDecHandle, pFrame->input_buffer, &decOut);
+	bKeyFrame = GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT(pFrame);
+
+	ret = VideoDecodeFrame(pNxVideoDec->pNxVideoDecHandle, pFrame->input_buffer, &decOut, bKeyFrame);
 
 	gst_buffer_unmap (pFrame->input_buffer, &mapInfo);
 	if( DEC_ERR == ret )

@@ -9,10 +9,8 @@
 #include "decoder.h"
 #include "gstnxvideodec.h"
 
-static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut );
-static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut );
-static gint Mpeg4DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut );
 static gint ParseH264Info( guint8 *pData, gint size, NX_AVCC_TYPE *pH264Info );
+static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint outBufSize, gint *pIsKey );
 static gint InitializeCodaVpu( NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pInitBuf, gint initBufSize );
 static gint FlushDecoder( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle );
 //TimeStamp
@@ -197,22 +195,6 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	pDecHandle->pTmpStrmBuf = g_malloc(MAX_INPUT_BUF_SIZE);
 	pDecHandle->tmpStrmBufSize = MAX_INPUT_BUF_SIZE;
 
-	switch ( pDecHandle->codecType )
-	{
-		case V4L2_PIX_FMT_H264:
-			pDecHandle->DecodeFrame = AVCDecodeFrame;
-			break;
-		case V4L2_PIX_FMT_MPEG2:
-			pDecHandle->DecodeFrame = Mpeg2DecodeFrame;
-			break;
-		case V4L2_PIX_FMT_MPEG4:
-			pDecHandle->DecodeFrame = Mpeg4DecodeFrame;
-			break;
-		case V4L2_PIX_FMT_H263:
-			pDecHandle->DecodeFrame = Mpeg4DecodeFrame;
-			break;
-	}
-
 	InitVideoTimeStamp(pDecHandle);
 
 	FUNC_OUT();
@@ -220,19 +202,165 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	return ret;
 }
 
-gint VideoDecodeFrame(NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pInGstBuf, NX_V4L2DEC_OUT *pOutDecOut)
+gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame )
 {
-	FUNC_IN();
-	gint ret = -1;
+	NX_VIDEO_DEC_STRUCT *pHDec = pDecHandle;
+	guint8 *pInBuf = NULL;
+	GstMapInfo mapInfo;
+	gint inSize = 0;
+	NX_AVCC_TYPE *h264Info = NULL;
+	gint isKey = 0;
+	guint8 *pDecBuf = NULL;
+	gint decBufSize = 0;
+	gint ret = 0;
+	gint64 timestamp = 0;
+	NX_V4L2DEC_IN decIn;
 
-	if( pDecHandle->hCodec && pDecHandle->DecodeFrame )
+	FUNC_IN();
+
+	if( pHDec->bFlush )
 	{
-		ret = pDecHandle->DecodeFrame( pDecHandle, pInGstBuf, pOutDecOut );
+		FlushDecoder( pHDec );
+		pHDec->bFlush = FALSE;
+	}
+
+	h264Info = pHDec->pH264Info;
+	gst_buffer_map(pGstBuf, &mapInfo, GST_MAP_READ);
+	pInBuf = mapInfo.data;
+	inSize = gst_buffer_get_size(pGstBuf);
+
+	// Push Input Time Stamp
+	if ( GST_BUFFER_PTS_IS_VALID(pGstBuf) )
+	{
+		PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
+		timestamp = GST_BUFFER_PTS(pGstBuf);
+	}
+	else if ( GST_BUFFER_DTS_IS_VALID(pGstBuf) )
+	{
+		PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
+		timestamp = GST_BUFFER_DTS(pGstBuf);
+	}
+
+	if( FALSE == pHDec->bInitialized )
+	{
+		pDecBuf = pHDec->pTmpStrmBuf;
+
+		if( pHDec->codecType == V4L2_PIX_FMT_H264 )
+		{
+			if( NULL == h264Info ) //h264Info is Seqence data
+			{
+				memcpy( pDecBuf, pInBuf, inSize );
+				decBufSize = inSize;
+			}
+			else
+			{
+				// AVCC Type
+				if( h264Info->eStreamType == NX_H264_STREAM_AVCC )
+				{
+					memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
+					decBufSize = h264Info->spsppsSize;
+					decBufSize += ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, MAX_INPUT_BUF_SIZE, &isKey );
+				}
+				// Annex B Type
+				else
+				{
+					memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
+					decBufSize = h264Info->spsppsSize;
+					memcpy( pDecBuf+decBufSize, pInBuf, inSize );
+					decBufSize += inSize;
+				}
+			}
+		}
+		else
+		{
+			if( pHDec->extraDataSize  )
+			{
+				memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
+				decBufSize = pHDec->extraDataSize;
+				memcpy( pDecBuf+decBufSize, pInBuf, inSize );
+				decBufSize += inSize;
+			}
+			else
+			{
+				memcpy( pDecBuf, pInBuf, inSize );
+				decBufSize = inSize;
+			}
+		}
+
+		// Initialize VPU
+		ret = InitializeCodaVpu(pHDec, pDecBuf, decBufSize );
+
+		if( 0 > ret )
+		{
+			g_print("VPU initialized Failed!!!!\n");
+			NX_V4l2DecClose( pHDec->hCodec );
+			pHDec->hCodec = NULL;
+			ret = DEC_INIT_ERR;
+			goto VideoDecodeFrame_Exit;
+		}
+
+		pHDec->bInitialized = TRUE;
+
+		decIn.strmBuf = pDecBuf;
+		decIn.strmSize = inSize;
+		decIn.timeStamp = timestamp;
+		decIn.eos = 0;
+		VDecSemPend(pHDec->pSem);
+		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
+		}
 	}
 	else
 	{
-		return -1;
+		if( pHDec->codecType == V4L2_PIX_FMT_H264 )
+		{
+			if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+			{
+				pDecBuf = pHDec->pTmpStrmBuf;
+				decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, MAX_INPUT_BUF_SIZE, &isKey );
+			}
+			// Annex B Type
+			else
+			{
+				pDecBuf = pInBuf;
+				decBufSize = inSize;
+			}
+		}
+		else
+		{
+			pDecBuf = pInBuf;
+			decBufSize = inSize;
+		}
+
+		decIn.strmBuf = pDecBuf;
+		decIn.strmSize = decBufSize;
+		decIn.timeStamp = timestamp;
+		decIn.eos = 0;
+		VDecSemPend(pHDec->pSem);
+		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
+		}
 	}
+VideoDecodeFrame_Exit:
+	gst_buffer_unmap (pGstBuf,&mapInfo);
 
 	FUNC_OUT();
 
@@ -595,375 +723,6 @@ static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, uns
 
 	return pos;
 }
-
-static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut )
-{
-	NX_VIDEO_DEC_STRUCT *pHDec = pNxVideoDecHandle;
-	guint8 *pInBuf = NULL;
-	GstMapInfo mapInfo;
-	gint inSize = 0;
-	NX_AVCC_TYPE *h264Info = NULL;
-	gint isKey = 0;
-	guint8 *pDecBuf = NULL;
-	gint decBufSize = 0;
-	gint ret = 0;
-	gint64 timestamp = 0;
-	NX_V4L2DEC_IN decIn;
-
-	FUNC_IN();
-
-	if( pHDec->bFlush )
-	{
-		FlushDecoder( pHDec );
-		pHDec->bFlush = FALSE;
-	}
-
-	h264Info = pHDec->pH264Info;
-	gst_buffer_map(pGstBuf, &mapInfo, GST_MAP_READ);
-	pInBuf = mapInfo.data;
-	inSize = gst_buffer_get_size(pGstBuf);
-
-	// Push Input Time Stamp
-	if ( GST_BUFFER_PTS_IS_VALID(pGstBuf) )
-	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
-		timestamp = GST_BUFFER_PTS(pGstBuf);
-	}
-	else if ( GST_BUFFER_DTS_IS_VALID(pGstBuf) )
-	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
-		timestamp = GST_BUFFER_DTS(pGstBuf);
-	}
-
-	if( FALSE == pHDec->bInitialized )
-	{
-		pDecBuf = pHDec->pTmpStrmBuf;
-
-		if( NULL == h264Info ) //h264Info is Seqence data
-		{
-			memcpy( pDecBuf, pInBuf, inSize );
-			decBufSize = inSize;
-		}
-		else
-		{
-			// AVCC Type
-			if( h264Info->eStreamType == NX_H264_STREAM_AVCC )
-			{
-				memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
-				decBufSize = h264Info->spsppsSize;
-				decBufSize += ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, MAX_INPUT_BUF_SIZE, &isKey );
-			}
-			// Annex B Type
-			else
-			{
-				memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
-				decBufSize = h264Info->spsppsSize;
-				memcpy( pDecBuf+decBufSize, pInBuf, inSize );
-				decBufSize += inSize;
-			}
-		}
-
-		// Initialize VPU
-		ret = InitializeCodaVpu(pHDec, pDecBuf, decBufSize );
-
-		if( 0 > ret )
-		{
-			g_print("VPU initialized Failed!!!!\n");
-			NX_V4l2DecClose( pNxVideoDecHandle->hCodec );
-			pNxVideoDecHandle->hCodec = NULL;
-			ret = DEC_INIT_ERR;
-			goto AVCDecode_Exit;
-		}
-
-		pHDec->bInitialized = TRUE;
-
-		decIn.strmBuf = pDecBuf;
-		decIn.strmSize = inSize;
-		decIn.timeStamp = timestamp;
-		decIn.eos = 0;
-		VDecSemPend(pHDec->pSem);
-		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
-		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
-		{
-			VDecSemPost( pHDec->pSem );
-		}
-
-		if( 0 != ret )
-		{
-			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
-			ret = DEC_ERR;
-		}
-	}
-	else
-	{
-		if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
-		{
-			pDecBuf = pHDec->pTmpStrmBuf;
-			decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, MAX_INPUT_BUF_SIZE, &isKey );
-		}
-		// Annex B Type
-		else
-		{
-			pDecBuf = pInBuf;
-			decBufSize = inSize;
-		}
-
-		decIn.strmBuf = pDecBuf;
-		decIn.strmSize = decBufSize;
-		decIn.timeStamp = timestamp;
-		decIn.eos = 0;
-		VDecSemPend(pHDec->pSem);
-		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
-		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
-		{
-			VDecSemPost( pHDec->pSem );
-		}
-
-		if( 0 != ret )
-		{
-			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
-			ret = DEC_ERR;
-		}
-	}
-
-AVCDecode_Exit:
-	gst_buffer_unmap (pGstBuf,&mapInfo);
-
-	FUNC_OUT();
-
-	return ret;
-}
-//
-//								End of the H.264 Decoder
-//
-//////////////////////////////////////////////////////////////////////////////
-
-
-
-//////////////////////////////////////////////////////////////////////////////
-//
-//							MPEG2 Decoder
-//
-
-#define		MPEG2_PICTURE_START_CODE		0x00000100
-#define		MPEG2_SEQUENCE_HEADER			0x000001B3
-static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut )
-{
-
-	GstMapInfo mapInfo;
-	guint8 *pInBuf = NULL;
-	gint inSize = 0;
-	guint8 *pDecBuf = NULL;
-	gint decBufSize = 0;
-	gint ret=0;
-	NX_V4L2DEC_IN decIn;
-	gint64 timestamp = 0;
-	NX_VIDEO_DEC_STRUCT *pHDec = pNxVideoDecHandle;
-
-	FUNC_IN();
-
-	if( pHDec->bFlush )
-	{
-		FlushDecoder( pHDec );
-		pHDec->bFlush = FALSE;
-	}
-
-	gst_buffer_map(pGstBuf, &mapInfo, GST_MAP_READ);
-	pInBuf = mapInfo.data;
-	inSize = gst_buffer_get_size(pGstBuf);
-
-	// Push Input Time Stamp
-	if ( GST_BUFFER_PTS_IS_VALID(pGstBuf) )
-	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
-		timestamp = GST_BUFFER_PTS(pGstBuf);
-	}
-	else if ( GST_BUFFER_DTS_IS_VALID(pGstBuf) )
-	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
-		timestamp = GST_BUFFER_DTS(pGstBuf);
-	}
-
-	if( FALSE == pHDec->bInitialized )
-	{
-		pDecBuf = pHDec->pTmpStrmBuf;
-
-		if( pHDec->extraDataSize  )
-		{
-			memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
-			decBufSize = pHDec->extraDataSize;
-			memcpy( pDecBuf+decBufSize, pInBuf, inSize );
-			decBufSize += inSize;
-		}
-		else
-		{
-			memcpy( pDecBuf, pInBuf, inSize );
-			decBufSize = inSize;
-		}
-
-		// Initialize VPU
-		ret = InitializeCodaVpu(pHDec, pDecBuf, decBufSize );
-
-		if( 0 > ret )
-		{
-			g_print("VPU initialized Failed!!!!\n");
-			NX_V4l2DecClose( pNxVideoDecHandle->hCodec );
-			pNxVideoDecHandle->hCodec = NULL;
-			ret = DEC_INIT_ERR;
-			goto Mpeg2Decode_Exit;
-
-		}
-
-		pHDec->bInitialized = TRUE;
-
-		ret = 0;
-		pDecOut->dispIdx = -1;
-	}
-	else
-	{
-
-		decIn.strmBuf = pInBuf;
-		decIn.strmSize = inSize;
-		decIn.timeStamp = timestamp;
-		decIn.eos = 0;
-		VDecSemPend(pHDec->pSem);
-		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
-		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
-		{
-			VDecSemPost( pHDec->pSem );
-		}
-
-		if( 0 != ret )
-		{
-			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
-			ret = DEC_ERR;
-		}
-	}
-
-Mpeg2Decode_Exit:
-	gst_buffer_unmap (pGstBuf,&mapInfo);
-
-	FUNC_OUT();
-
-	return ret;
-}
-//
-//						End of the MPEG2 Decoder
-//
-//////////////////////////////////////////////////////////////////////////////
-
-
-
-//////////////////////////////////////////////////////////////////////////////
-//
-//							MPEG4 Decoder
-//
-static gint Mpeg4DecodeFrame( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut )
-{
-
-	GstMapInfo mapInfo;
-	guint8 *pInBuf = NULL;
-	gint inSize = 0;
-	guint8 *pDecBuf = NULL;
-	gint decBufSize = 0;
-	gint ret=0;
-	NX_V4L2DEC_IN decIn;
-	gint64 timestamp = 0;
-	NX_VIDEO_DEC_STRUCT *pHDec = pNxVideoDecHandle;
-
-	FUNC_IN();
-
-	if( pHDec->bFlush )
-	{
-		FlushDecoder( pHDec );
-		pHDec->bFlush = FALSE;
-	}
-
-	gst_buffer_map(pGstBuf, &mapInfo, GST_MAP_READ);
-	pInBuf = mapInfo.data;
-	inSize = gst_buffer_get_size(pGstBuf);
-
-	// Push Input Time Stamp
-	if ( GST_BUFFER_PTS_IS_VALID(pGstBuf) )
-	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
-		timestamp = GST_BUFFER_PTS(pGstBuf);
-	}
-	else if ( GST_BUFFER_DTS_IS_VALID(pGstBuf) )
-	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
-		timestamp = GST_BUFFER_DTS(pGstBuf);
-	}
-
-	if( FALSE == pHDec->bInitialized  )
-	{
-		pDecBuf = pHDec->pTmpStrmBuf;
-
-		if( pHDec->extraDataSize  )
-		{
-			memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
-			decBufSize = pHDec->extraDataSize;
-			memcpy( pDecBuf+decBufSize, pInBuf, inSize );
-			decBufSize += inSize;
-		}
-		else
-		{
-			memcpy( pDecBuf, pInBuf, inSize );
-			decBufSize = inSize;
-		}
-
-		// Initialize VPU
-		ret = InitializeCodaVpu(pHDec, pDecBuf, decBufSize );
-
-		if( 0 > ret )
-		{
-			g_print("VPU initialized Failed!!!!\n");
-			NX_V4l2DecClose( pNxVideoDecHandle->hCodec );
-			pNxVideoDecHandle->hCodec = NULL;
-			ret = DEC_INIT_ERR;
-			goto Mpeg4Decode_Exit;
-
-		}
-
-		pHDec->bInitialized = TRUE;
-
-		ret = 0;
-		pDecOut->dispIdx = -1;
-	}
-	else
-	{
-		decIn.strmBuf = pInBuf;
-		decIn.strmSize = inSize;
-		decIn.timeStamp = timestamp;
-		decIn.eos = 0;
-		VDecSemPend(pHDec->pSem);
-		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
-		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
-		{
-			VDecSemPost( pHDec->pSem );
-		}
-
-		if( 0 != ret )
-		{
-			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
-			ret = DEC_ERR;
-		}
-	}
-
-Mpeg4Decode_Exit:
-	gst_buffer_unmap (pGstBuf,&mapInfo);
-
-	FUNC_OUT();
-
-	return ret;
-
-}
-//
-//						End of the MPEG4 Decoder
-//
-//////////////////////////////////////////////////////////////////////////////
-
-
 
 ///////////////////////////////////////////////////////////////////////////////
 static void InitVideoTimeStamp(NX_VIDEO_DEC_STRUCT *hDec)
