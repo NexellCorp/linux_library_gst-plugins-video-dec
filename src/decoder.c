@@ -74,7 +74,7 @@ gint FindCodecInfo( GstVideoCodecState *pState, NX_VIDEO_DEC_STRUCT *pDecHandle 
 
 	if( codecType == -1 )
 	{
-		g_print("out of profile or not supported video codec.(mime_type=%s)\n", pMime);
+		GST_ERROR("out of profile or not supported video codec.(mime_type=%s)\n", pMime);
 	}
 
 	if( pDecHandle->width > NX_MAX_WIDTH || pDecHandle->height > NX_MAX_HEIGHT )
@@ -85,7 +85,7 @@ gint FindCodecInfo( GstVideoCodecState *pState, NX_VIDEO_DEC_STRUCT *pDecHandle 
 	return codecType;
 
 error_outofrange:
-	g_print("out of resolution for %s.(Max %dx%d, In %dx%d )\n", pMime, NX_MAX_WIDTH, NX_MAX_HEIGHT, pDecHandle->width, pDecHandle->height);
+	GST_ERROR("out of resolution for %s.(Max %dx%d, In %dx%d )\n", pMime, NX_MAX_WIDTH, NX_MAX_HEIGHT, pDecHandle->width, pDecHandle->height);
 	return -1;
 }
 
@@ -104,7 +104,7 @@ gboolean GetExtraInfo( NX_VIDEO_DEC_STRUCT *pDecHandle, guint8 *pCodecData, gint
 			// H264(AVC)
 			if( ParseH264Info( pCodecData, codecDataSize, pDecHandle->pH264Info ) != 0 )
 			{
-				g_printerr( "Error unsupported h264 stream!\n" );
+				GST_ERROR( "Error unsupported h264 stream!\n" );
 				return FALSE;
 			}
 			else
@@ -134,7 +134,7 @@ gboolean GetExtraInfo( NX_VIDEO_DEC_STRUCT *pDecHandle, guint8 *pCodecData, gint
 	}
 	else
 	{
-		g_printerr( "Codec_data not exist.\n" );
+		g_print( "Codec_data not exist.\n" );
 	}
 
 	return TRUE;
@@ -150,7 +150,7 @@ NX_VIDEO_DEC_STRUCT *OpenVideoDec()
 
 	if( NULL == pDecHandle )
 	{
-		g_printerr("%s(%d) Create VideoHandle failed.\n", __FILE__, __LINE__);
+		GST_ERROR("%s(%d) Create VideoHandle failed.\n", __FILE__, __LINE__);
 		return NULL;
 	}
 
@@ -169,7 +169,7 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	pDecHandle->hCodec = NX_V4l2DecOpen( pDecHandle->codecType );
 	if ( NULL == pDecHandle->hCodec )
 	{
-		g_printerr("%s(%d) NX_V4l2DecOpen() failed.\n", __FILE__, __LINE__);
+		GST_ERROR("%s(%d) NX_V4l2DecOpen() failed.\n", __FILE__, __LINE__);
 		return -1;
 	}
 
@@ -197,6 +197,8 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 
 	InitVideoTimeStamp(pDecHandle);
 
+	pDecHandle->bNeedIframe = TRUE;
+
 	FUNC_OUT();
 
 	return ret;
@@ -222,6 +224,18 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 	{
 		FlushDecoder( pHDec );
 		pHDec->bFlush = FALSE;
+		pHDec->bNeedKey = TRUE;
+		pHDec->bNeedIframe = TRUE;
+	}
+
+	if( pHDec->bNeedKey )
+	{
+		if( FALSE == bKeyFrame )
+		{
+			pDecOut->dispIdx = -1;
+			return ret;
+		}
+		pHDec->bNeedKey = FALSE;
 	}
 
 	h264Info = pHDec->pH264Info;
@@ -292,7 +306,7 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 
 		if( 0 > ret )
 		{
-			g_print("VPU initialized Failed!!!!\n");
+			GST_ERROR("VPU initialized Failed!!!!\n");
 			NX_V4l2DecClose( pHDec->hCodec );
 			pHDec->hCodec = NULL;
 			ret = DEC_INIT_ERR;
@@ -301,22 +315,30 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 
 		pHDec->bInitialized = TRUE;
 
-		decIn.strmBuf = pDecBuf;
-		decIn.strmSize = inSize;
-		decIn.timeStamp = timestamp;
-		decIn.eos = 0;
-		VDecSemPend(pHDec->pSem);
-		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
-
-		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		if( pHDec->codecType == V4L2_PIX_FMT_H264 )
 		{
-			VDecSemPost( pHDec->pSem );
+			decIn.strmBuf = pDecBuf;
+			decIn.strmSize = inSize;
+			decIn.timeStamp = timestamp;
+			decIn.eos = 0;
+			VDecSemPend(pHDec->pSem);
+			ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+
+			if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+			{
+				VDecSemPost( pHDec->pSem );
+			}
+
+			if( 0 != ret )
+			{
+				g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+				ret = DEC_ERR;
+			}
 		}
-
-		if( 0 != ret )
+		else
 		{
-			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
-			ret = DEC_ERR;
+			ret = 0;
+			pDecOut->dispIdx = -1;
 		}
 	}
 	else
@@ -347,6 +369,21 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 		decIn.eos = 0;
 		VDecSemPend(pHDec->pSem);
 		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+
+		if( (0 == ret ) && (0 <= pDecOut->dispIdx) )
+		{
+			if( (TRUE == pHDec->bNeedIframe) && (PIC_TYPE_I != pDecOut->picType[DISPLAY_FRAME]) )
+			{
+				NX_V4l2DecClrDspFlag( pHDec->hCodec, NULL, pDecOut->dispIdx );
+				VDecSemPost( pHDec->pSem );
+				ret = DEC_ERR;
+				goto VideoDecodeFrame_Exit;
+			}
+			else
+			{
+				pHDec->bNeedIframe = FALSE;
+			}
+		}
 
 		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
 		{
@@ -420,7 +457,7 @@ gint GetTimeStamp(NX_VIDEO_DEC_STRUCT *pDecHandle, gint64 *pTimestamp)
 	gint ret = 0;
 	guint flag;
 
-	PopVideoTimeStamp(pDecHandle, pTimestamp, &flag );
+	ret = PopVideoTimeStamp(pDecHandle, pTimestamp, &flag );
 
 	return ret;
 }
@@ -506,7 +543,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 
 		if ( 0 != (ret = NX_V4l2DecParseVideoCfg( pHDec->hCodec, &seqIn, &seqOut )) )
 		{
-			g_print("NX_V4l2DecParseVideoCfg() is failed!!, ret = %d\n", ret);
+			GST_ERROR("NX_V4l2DecParseVideoCfg() is failed!!, ret = %d\n", ret);
 			return ret;
 		}
 
@@ -519,7 +556,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 
 		if( 0 != ret)
 		{
-			g_print("NX_V4l2DecInit() is failed!!, ret = %d\n", ret);
+			GST_ERROR("NX_V4l2DecInit() is failed!!, ret = %d\n", ret);
 		}
 
 		pHDec->minRequiredFrameBuffer = seqOut.minBuffers;
@@ -565,7 +602,7 @@ static gint ParseSpsPpsFromAVCC( unsigned char *pExtraData, gint extraDataSize, 
 
 	if( 1!=pExtraData[0] || 11>extraDataSize )
 	{
-		g_printerr( "Error : Invalid \"avcC\" data(%d)\n", extraDataSize );
+		GST_ERROR( "Error : Invalid \"avcC\" data(%d)\n", extraDataSize );
 		return -1;
 	}
 
@@ -578,7 +615,7 @@ static gint ParseSpsPpsFromAVCC( unsigned char *pExtraData, gint extraDataSize, 
 
 	if( 100 < pH264Info->profileIndication  )
 	{
-		g_printerr( "H264 profile too high!(%d)\n", pH264Info->profileIndication );
+		GST_ERROR( "H264 profile too high!(%d)\n", pH264Info->profileIndication );
 		return -1;
 	}
 
@@ -592,7 +629,7 @@ static gint ParseSpsPpsFromAVCC( unsigned char *pExtraData, gint extraDataSize, 
 		pos+=2;
 		if( (pos+length) > extraDataSize )
 		{
-			g_printerr( "extraData size too small(SPS)\n" );
+			GST_ERROR( "extraData size too small(SPS)\n" );
 			return -1;
 		}
 		pH264Info->spsppsData[pH264Info->spsppsSize+0] = 0;
@@ -613,7 +650,7 @@ static gint ParseSpsPpsFromAVCC( unsigned char *pExtraData, gint extraDataSize, 
 		pos+=2;
 		if( (pos+length) > extraDataSize )
 		{
-			g_printerr( "extraData size too small(PPS)\n" );
+			GST_ERROR( "extraData size too small(PPS)\n" );
 			return -1;
 		}
 		pH264Info->spsppsData[pH264Info->spsppsSize+0] = 0;
@@ -696,7 +733,7 @@ static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, uns
 
 		if( 0==nalLength || inSize<(int)nalLength )
 		{
-			g_print("Error : avcC type nal length error (nalLength = %d, inSize=%d, nalLengthSize=%d)\n", nalLength, inSize, nalLengthSize);
+			GST_ERROR("Error : avcC type nal length error (nalLength = %d, inSize=%d, nalLengthSize=%d)\n", nalLength, inSize, nalLengthSize);
 			return -1;
 		}
 

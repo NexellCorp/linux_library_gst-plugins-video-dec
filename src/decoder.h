@@ -77,6 +77,8 @@ struct _NX_VIDEO_DEC_STRUCT
 	gint bufferCountActual;
 	gint minRequiredFrameBuffer;
 	gboolean bFlush;
+	gboolean bNeedKey;
+	gboolean bNeedIframe;
 	gint imgPlaneNum;
 
 	//	Temporal Buffer
