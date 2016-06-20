@@ -89,9 +89,9 @@ struct _GstNxVideoDec
 {
 	GstVideoDecoder base_nxvideodec;
 	NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle;
+	gint bufferType;
 	// video state
 	GstVideoCodecState *pInputState;
-	gboolean accelerable;
 	gint	isState;
 	pthread_mutex_t		mutex;
 };

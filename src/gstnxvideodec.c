@@ -90,6 +90,13 @@ static GstMemory *nxvideodec_copy_data(NX_V4L2DEC_OUT *pDecOut);
 enum
 {
 	PROP_0,
+	PROP_TYPE	//0: 1:MM_VIDEO_BUFFER_TYPE_GEM
+};
+
+enum
+{
+	BUFFER_TYPE_NORMAL,
+	BUFFER_TYPE_GEM
 };
 
 enum
@@ -213,6 +220,11 @@ gst_nxvideodec_class_init (GstNxVideoDecClass * pKlass)
 	pVideoDecoderClass->flush = GST_DEBUG_FUNCPTR (gst_nxvideodec_flush);
 	pVideoDecoderClass->handle_frame = GST_DEBUG_FUNCPTR (gst_nxvideodec_handle_frame);
 
+	g_object_class_install_property (
+		pGobjectClass,
+		PROP_TYPE,
+		g_param_spec_int ("buffer-type", "buffer-type", "Buffer Type(0:NORMAL 1:MM_VIDEO_BUFFER_TYPE_GEM)", 0, 1, BUFFER_TYPE_GEM, G_PARAM_READWRITE));
+
 	FUNC_OUT();
 }
 
@@ -225,9 +237,9 @@ gst_nxvideodec_init (GstNxVideoDec *pNxVideoDec)
 
 	// Initialize variables
 	pNxVideoDec->pNxVideoDecHandle = NULL;
-	pNxVideoDec->accelerable = FALSE;
 	pNxVideoDec->pInputState = NULL;
 	pNxVideoDec->isState = STOP;
+	pNxVideoDec->bufferType = BUFFER_TYPE_GEM;
 	pthread_mutex_init(&pNxVideoDec->mutex, NULL);
 
 	FUNC_OUT();
@@ -244,6 +256,9 @@ gst_nxvideodec_set_property (GObject *pObject, guint propertyId,
 
 	switch (propertyId)
 	{
+		case PROP_TYPE:
+			pNxvideodec->bufferType = g_value_get_int(pValue);
+			break;
 		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID (pObject, propertyId, pPspec);
 			break;
@@ -263,6 +278,9 @@ gst_nxvideodec_get_property (GObject *pObject, guint propertyId,
 
 	switch (propertyId)
 	{
+		case PROP_TYPE:
+			g_value_set_int(pValue, pNxvideodec->bufferType);
+			break;
 		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID (pObject, propertyId, pPspec);
 			break;
@@ -330,39 +348,6 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 
 	FUNC_OUT();
 	return TRUE;
-}
-
-static gboolean
-is_buffer_accelerable( GstVideoDecoder *pDecoder )
-{
-	GstCaps *peercaps = gst_pad_peer_query_caps( GST_VIDEO_DECODER_SRC_PAD(pDecoder), NULL );
-	if( peercaps && !gst_caps_is_any(peercaps) )
-	{
-		gint i;
-		for( i = 0; i < gst_caps_get_size(peercaps); i++ )
-		{
-			GstCaps *icaps = gst_caps_copy_nth( peercaps, i );
-			if( !icaps && gst_caps_is_empty(icaps) )
-				continue;
-
-			GstStructure *structure = gst_caps_get_structure( icaps, 0 );
-			if( structure )
-			{
-				gboolean accelerable = FALSE;
-				gst_structure_get_boolean( structure, "accelerable", &accelerable );
-
-				if( accelerable )
-				{
-					gst_caps_unref( icaps );
-					return TRUE;
-				}
-			}
-
-			gst_caps_unref( icaps );
-		}
-	}
-
-	return FALSE;
 }
 
 static gboolean
@@ -452,14 +437,12 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 			"format", G_TYPE_STRING, gst_video_format_to_string (GST_VIDEO_FORMAT_I420),
 			"width", G_TYPE_INT, pDecHandle->width,
 			"height", G_TYPE_INT, pDecHandle->height,
-			"framerate", GST_TYPE_FRACTION, pDecHandle->fpsNum, pDecHandle->fpsDen,
-			"buffer-type", G_TYPE_INT, MM_VIDEO_BUFFER_TYPE_GEM, NULL);
+			"framerate", GST_TYPE_FRACTION, pDecHandle->fpsNum, pDecHandle->fpsDen, NULL);
 
 	gst_video_codec_state_unref( pOutputState );
 
-	pNxVideoDec->accelerable = is_buffer_accelerable( pDecoder );
 	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 3;
-	if( pNxVideoDec->accelerable )
+	if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
 	{
 		pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 1;
 		GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
@@ -543,7 +526,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 
 	GST_DEBUG_OBJECT( pNxVideoDec, " decOut.dispIdx: %d\n",decOut.dispIdx );
 
-	if( TRUE == pNxVideoDec->accelerable )
+	if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
 	{
 		GstNxDecOutBuffer *pDecOutBuffer = NULL;
 		GstMemory *pMemCopyData = NULL;
