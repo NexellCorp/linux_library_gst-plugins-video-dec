@@ -9,6 +9,8 @@
 #include "decoder.h"
 #include "gstnxvideodec.h"
 
+#define	MAX_OUTPUT_BUF	6
+
 static gint ParseH264Info( guint8 *pData, gint size, NX_AVCC_TYPE *pH264Info );
 static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint outBufSize, gint *pIsKey );
 static gint InitializeCodaVpu( NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pInitBuf, gint initBufSize );
@@ -171,25 +173,6 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	{
 		GST_ERROR("%s(%d) NX_V4l2DecOpen() failed.\n", __FILE__, __LINE__);
 		return -1;
-	}
-
-	if ( V4L2_PIX_FMT_H264 == pDecHandle->codecType )
-	{
-		gint MBs = ((pDecHandle->width+15)>>4)*((pDecHandle->height+15)>>4);
-		// Under 720p
-		if ( MBs <= ((1280>>4)*(720>>4)) )
-		{
-			pDecHandle->bufferCountActual = VID_OUTPORT_MIN_BUF_CNT_H264_UNDER720P;
-		}
-		// 1080p
-		else
-		{
-			pDecHandle->bufferCountActual = VID_OUTPORT_MIN_BUF_CNT_H264_1080P;
-		}
-	}
-	else
-	{
-		pDecHandle->bufferCountActual = VID_OUTPORT_MIN_BUF_CNT;
 	}
 
 	pDecHandle->pTmpStrmBuf = g_malloc(MAX_INPUT_BUF_SIZE);
@@ -549,6 +532,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 
 		seqIn.width = seqOut.width;
 		seqIn.height = seqOut.height;
+		pHDec->bufferCountActual = seqOut.minBuffers + MAX_OUTPUT_BUF;
 		seqIn.numBuffers = pHDec->bufferCountActual;
 		seqIn.imgPlaneNum = pHDec->imgPlaneNum;
 		seqIn.imgFormat = seqOut.imgFourCC;
@@ -560,7 +544,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		}
 
 		pHDec->minRequiredFrameBuffer = seqOut.minBuffers;
-		pHDec->pSem = VDecSemCreate( pHDec->bufferCountActual );
+		pHDec->pSem = VDecSemCreate( MAX_OUTPUT_BUF );
 		g_print("<<<<<<<<<< InitializeCodaVpu(Min=%d, %dx%d) (ret = %d) >>>>>>>>>\n",
 			pHDec->minRequiredFrameBuffer, seqOut.width, seqOut.height, ret );
 	}
