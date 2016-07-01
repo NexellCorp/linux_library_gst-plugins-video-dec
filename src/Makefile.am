@@ -22,6 +22,7 @@ libgstnxvideodec_la_LIBADD = \
 	$(GST_LIBS)			\
 	-lgstvideo-1.0		\
 	-lgstpbutils-1.0	\
+	-lnxgstmeta			\
 	-lnx_video_api
 
 libgstnxvideodec_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -L$(libdir)

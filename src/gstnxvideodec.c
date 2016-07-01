@@ -64,6 +64,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/gstvideodecoder.h>
+#include <gstmmvideobuffermeta.h>
 #include "gstnxvideodec.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_nxvideodec_debug_category);
@@ -589,6 +590,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 			return GST_FLOW_ERROR;
 		}
 		pFrame->output_buffer = pDecOutBuffer->pGstBuffer;
+		gst_buffer_add_mmvideobuffer_meta( pDecOutBuffer->pGstBuffer, 0 );
 
 		if( -1 == GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp) )
 		{
