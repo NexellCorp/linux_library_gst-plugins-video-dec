@@ -12,7 +12,7 @@
 #define	MAX_OUTPUT_BUF	6
 
 static gint ParseH264Info( guint8 *pData, gint size, NX_AVCC_TYPE *pH264Info );
-static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint outBufSize, gint *pIsKey );
+static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint *pIsKey );
 static gint InitializeCodaVpu( NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pInitBuf, gint initBufSize );
 static gint FlushDecoder( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle );
 //TimeStamp
@@ -276,7 +276,30 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 				return ret;
 			}
 
-			if( V4L2_PIX_FMT_DIV3 == pHDec->codecType )
+			if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+			{
+				gint size = 0;
+				if( 0 == GST_BUFFER_DURATION(pGstBuf) )
+				{
+					size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
+					pHDec->size = pHDec->size + size;
+					pHDec->pos = pHDec->pos + size;
+
+					pDecOut->dispIdx = -1;
+					ret = DEC_ERR;
+					goto VideoDecodeFrame_Exit;
+				}
+				else
+				{
+					size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
+					pHDec->size = pHDec->size + size;
+					pHDec->pos = pHDec->pos + size;
+					seqSize = pHDec->pos;
+					pSeqData = pDecBuf;
+					bDecode = TRUE;
+				}
+			}
+			else if( V4L2_PIX_FMT_DIV3 == pHDec->codecType )
 			{
 				seqSize = 0;
 				pSeqData = NULL;
@@ -332,10 +355,15 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 		{
 			if( pHDec->codecType == V4L2_PIX_FMT_H264 )
 			{
-				if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+				if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+				{
+					pDecBuf = pDecBuf + pHDec->pos - inSize;
+					decBufSize = inSize;
+				}
+				else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
 				{
 					pDecBuf = pHDec->pTmpStrmBuf;
-					decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, MAX_INPUT_BUF_SIZE, &isKey );
+					decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, &isKey );
 				}
 				// Annex B Type
 				else
@@ -393,10 +421,15 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 	{
 		if( pHDec->codecType == V4L2_PIX_FMT_H264 )
 		{
-			if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+			if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
 			{
 				pDecBuf = pHDec->pTmpStrmBuf;
-				decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, MAX_INPUT_BUF_SIZE, &isKey );
+				decBufSize = ParseAvcStream( pInBuf, inSize, 4, pDecBuf, &isKey );
+			}
+			else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+			{
+				pDecBuf = pHDec->pTmpStrmBuf;
+				decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, &isKey );
 			}
 			// Annex B Type
 			else
@@ -748,7 +781,7 @@ static gint ParseH264Info( guint8 *pData, gint size, NX_AVCC_TYPE *pH264Info )
 	return 0;
 }
 
-static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint outBufSize, gint *pIsKey )
+static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint *pIsKey )
 {
 
 	int nalLength;
@@ -786,7 +819,7 @@ static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, uns
 			return -1;
 		}
 
-		/* put nal start code */
+		// put nal start code
 		pBuffer[pos + 0] = 0x00;
 		pBuffer[pos + 1] = 0x00;
 		pBuffer[pos + 2] = 0x00;

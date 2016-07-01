@@ -65,6 +65,7 @@
 #include <gst/video/video.h>
 #include <gst/video/gstvideodecoder.h>
 #include <gstmmvideobuffermeta.h>
+#include <linux/videodev2.h>
 #include "gstnxvideodec.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_nxvideodec_debug_category);
@@ -449,6 +450,29 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 	else
 	{
 		g_print("No Codec Data\n");
+	}
+
+	if ( pDecHandle->codecType == V4L2_PIX_FMT_H264 )
+	{
+		const gchar *pStr = NULL;
+
+		if ((pStr = gst_structure_get_string (pStructure, "alignment")))
+		{
+			if (strcmp (pStr, "au") == 0)
+			{
+				pDecHandle->h264Alignment = H264_PARSE_ALIGN_AU;
+				GST_DEBUG_OBJECT (pNxVideoDec, ">>>>> H264 alignment: au Type.");
+			}
+			else if (strcmp (pStr, "nal") == 0)
+			{
+				pDecHandle->h264Alignment = H264_PARSE_ALIGN_NAL;
+				GST_DEBUG_OBJECT (pNxVideoDec, ">>>>> H264 alignment: nal Type.");
+			}
+			else
+			{
+				GST_DEBUG_OBJECT (pNxVideoDec, "unknown alignment: %s", pStr);
+			}
+		}
 	}
 
 	pOutputState =	gst_video_decoder_set_output_state (pDecoder, GST_VIDEO_FORMAT_I420,

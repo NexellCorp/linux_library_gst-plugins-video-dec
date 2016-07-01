@@ -27,6 +27,13 @@ enum
 	DEC_ERR			= -2,
 };
 
+enum
+{
+	H264_PARSE_ALIGN_NONE = 0,
+	H264_PARSE_ALIGN_NAL,
+	H264_PARSE_ALIGN_AU
+};
+
 typedef enum
 {
 	NX_H264_STREAM_UNKNOWN,
@@ -81,6 +88,8 @@ struct _NX_VIDEO_DEC_STRUCT
 	gboolean bNeedKey;
 	gboolean bNeedIframe;
 	gint imgPlaneNum;
+	gint pos;
+	gint size;
 
 	//	Temporal Buffer
 	guint8 *pTmpStrmBuf;
@@ -94,6 +103,7 @@ struct _NX_VIDEO_DEC_STRUCT
 	//
 	//	for H.264
 	NX_AVCC_TYPE *pH264Info;
+	gint h264Alignment;
 
 	NX_VDEC_SEMAPHORE *pSem;
 };
