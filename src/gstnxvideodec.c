@@ -187,6 +187,26 @@ nxvideodec_base_init (gpointer gclass)
 			"systemstream", G_TYPE_BOOLEAN, FALSE,
 			NULL) );
 
+	//	DIVX
+	gst_caps_append_structure (
+		pCapslist,
+		gst_structure_new(
+			"video/x-divx",
+			"width", GST_TYPE_INT_RANGE, 64, NX_MAX_WIDTH,
+			"height", GST_TYPE_INT_RANGE, 64, NX_MAX_HEIGHT,
+			"divxversion", GST_TYPE_INT_RANGE, 3, 6,
+			NULL) );
+
+	//	MSMPEG
+	gst_caps_append_structure (
+		pCapslist,
+		gst_structure_new(
+			"video/x-msmpeg",
+			"width", GST_TYPE_INT_RANGE, 64, NX_MAX_WIDTH,
+			"height", GST_TYPE_INT_RANGE, 64, NX_MAX_HEIGHT,
+			"msmpegversion", G_TYPE_INT, 43,
+			NULL) );
+
 	// pad templates
 	pKlass->pSinktempl = gst_pad_template_new ("sink", GST_PAD_SINK, GST_PAD_ALWAYS, pCapslist);
 	gst_element_class_add_pad_template (pElement_class, pKlass->pSinktempl);

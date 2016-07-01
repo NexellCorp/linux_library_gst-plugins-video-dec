@@ -2,6 +2,7 @@
 #include <gst/base/gstbasetransform.h>
 #include <nx_video_api.h>
 #include <gstnxvideodec.h>
+#include <videodev2_nxp_media.h>
 
 #ifndef __DECODER_H__
 #define __DECODER_H__
