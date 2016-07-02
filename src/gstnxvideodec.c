@@ -68,6 +68,10 @@
 #include <linux/videodev2.h>
 #include "gstnxvideodec.h"
 
+// This SUPPORT_NO_MEMORY_COPY function is disabled now.
+// if the video decoder mmap is supported this function, it will be enabled.
+#define SUPPORT_NO_MEMORY_COPY	0
+
 GST_DEBUG_CATEGORY_STATIC (gst_nxvideodec_debug_category);
 #define GST_CAT_DEFAULT gst_nxvideodec_debug_category
 
@@ -85,26 +89,42 @@ static gboolean gst_nxvideodec_flush (GstVideoDecoder * decoder);
 static GstFlowReturn gst_nxvideodec_handle_frame (GstVideoDecoder * decoder,
 		GstVideoCodecFrame * frame);
 static void nxvideodec_base_init (gpointer gclass);
-static void nxvideodec_buffer_finalize(GstNxDecOutBuffer *pBuffer);
-static GstNxDecOutBuffer *nxvideodec_buffer_new(void);
-static GstMemory *nxvideodec_copy_data(NX_V4L2DEC_OUT *pDecOut);
+static void nxvideodec_buffer_finalize(gpointer pData);
+static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut);
 
+#if SUPPORT_NO_MEMORY_COPY
+static void nxvideodec_get_offset_stride(gint width, gint height, guint8 *pSrc, gsize *pOffset, gint *pStride );
+enum
+{
+	PROP_0,
+};
+#else
 enum
 {
 	PROP_0,
 	PROP_TYPE	//0: 1:MM_VIDEO_BUFFER_TYPE_GEM
 };
-
 enum
 {
 	BUFFER_TYPE_NORMAL,
 	BUFFER_TYPE_GEM
 };
+#endif
 
 enum
 {
 	STOP,
 	PLAY
+};
+
+#ifndef ALIGN
+#define  ALIGN(X,N) ( (X+N-1) & (~(N-1)) )
+#endif
+
+struct video_meta_mmap_buffer
+{
+	gint v4l2BufferIdx;
+	GstNxVideoDec *pNxVideoDec;
 };
 
 #define	PLUGIN_LONG_NAME		"S5P6818 H/W Video Decoder"
@@ -242,10 +262,13 @@ gst_nxvideodec_class_init (GstNxVideoDecClass * pKlass)
 	pVideoDecoderClass->flush = GST_DEBUG_FUNCPTR (gst_nxvideodec_flush);
 	pVideoDecoderClass->handle_frame = GST_DEBUG_FUNCPTR (gst_nxvideodec_handle_frame);
 
+#if SUPPORT_NO_MEMORY_COPY
+#else
 	g_object_class_install_property (
 		pGobjectClass,
 		PROP_TYPE,
 		g_param_spec_int ("buffer-type", "buffer-type", "Buffer Type(0:NORMAL 1:MM_VIDEO_BUFFER_TYPE_GEM)", 0, 1, BUFFER_TYPE_GEM, G_PARAM_READWRITE));
+#endif
 
 	FUNC_OUT();
 }
@@ -261,7 +284,10 @@ gst_nxvideodec_init (GstNxVideoDec *pNxVideoDec)
 	pNxVideoDec->pNxVideoDecHandle = NULL;
 	pNxVideoDec->pInputState = NULL;
 	pNxVideoDec->isState = STOP;
+#if SUPPORT_NO_MEMORY_COPY
+#else
 	pNxVideoDec->bufferType = BUFFER_TYPE_GEM;
+#endif
 	pthread_mutex_init(&pNxVideoDec->mutex, NULL);
 
 	FUNC_OUT();
@@ -278,9 +304,12 @@ gst_nxvideodec_set_property (GObject *pObject, guint propertyId,
 
 	switch (propertyId)
 	{
+#if SUPPORT_NO_MEMORY_COPY
+#else
 		case PROP_TYPE:
 			pNxvideodec->bufferType = g_value_get_int(pValue);
 			break;
+#endif
 		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID (pObject, propertyId, pPspec);
 			break;
@@ -300,9 +329,12 @@ gst_nxvideodec_get_property (GObject *pObject, guint propertyId,
 
 	switch (propertyId)
 	{
+#if SUPPORT_NO_MEMORY_COPY
+#else
 		case PROP_TYPE:
 			g_value_set_int(pValue, pNxvideodec->bufferType);
 			break;
+#endif
 		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID (pObject, propertyId, pPspec);
 			break;
@@ -486,12 +518,15 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 
 	gst_video_codec_state_unref( pOutputState );
 
-	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 3;
+	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 1;
+#if SUPPORT_NO_MEMORY_COPY
+	GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
+#else
 	if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
 	{
-		pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 1;
 		GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
 	}
+#endif
 
 	ret = gst_video_decoder_negotiate( pDecoder );
 
@@ -530,6 +565,35 @@ gst_nxvideodec_flush (GstVideoDecoder *pDecoder)
 	return TRUE;
 }
 
+#if SUPPORT_NO_MEMORY_COPY
+static void
+nxvideodec_get_offset_stride(gint width, gint height, guint8 *pSrc, gsize *pOffset, gint *pStride )
+{
+	guint8 *plu = NULL;
+	guint8 *pcb = NULL;
+	guint8 *pcr = NULL;
+	gint luStride = 0;
+	gint luVStride = 0;
+	gint cStride = 0;
+	gint cVStride = 0;
+
+	luStride = ALIGN(width, 32);
+	luVStride = ALIGN(height, 16);
+	cStride = luStride/2;
+	cVStride = ALIGN(height/2, 16);
+	plu = pSrc;
+	pcb = plu + luStride * luVStride;
+	pcr = pcb + cStride * cVStride;
+	
+	pOffset[0] = 0;
+	pOffset[1] = pcb - plu;
+	pOffset[2] = pcr - plu;
+
+	pStride[0] = luStride;
+	pStride[1] = cStride;
+	pStride[2] = cStride;
+}
+
 static GstFlowReturn
 gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFrame)
 {
@@ -537,8 +601,175 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	NX_V4L2DEC_OUT decOut;
 	gint64 timeStamp = 0;
 	GstMapInfo mapInfo;
-	gint ret;
+	gint ret = 0;
 	gboolean bKeyFrame = FALSE;
+
+	GstMemory *pGstmem = NULL;
+	GstBuffer *pGstbuf = NULL;
+	struct video_meta_mmap_buffer *pMeta = NULL;
+
+	NX_VID_MEMORY_INFO *pImg = NULL;
+	GstVideoCodecState *pState = NULL;
+
+	unsigned char *pVadd = NULL;
+	GstVideoMeta *pVmeta = NULL;
+	gint videoImgSize = 0;
+
+	guint n_planes = 0;
+	gsize offset[3] = {0, };
+	gint stride[3] = {0, };
+
+	GstMemory *pMemMMVideoData = NULL;
+
+	FUNC_IN();
+
+	if (!gst_buffer_map (pFrame->input_buffer, &mapInfo, GST_MAP_READ))
+	{
+		GST_ERROR("Cannot map input buffer!");
+		gst_video_codec_frame_unref (pFrame);
+		return GST_FLOW_ERROR;
+	}
+
+	bKeyFrame = GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT(pFrame);
+
+	ret = VideoDecodeFrame(pNxVideoDec->pNxVideoDecHandle, pFrame->input_buffer, &decOut, bKeyFrame);
+
+	gst_buffer_unmap (pFrame->input_buffer, &mapInfo);
+	if( DEC_ERR == ret )
+	{
+		GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp);
+		return gst_video_decoder_drop_frame(pDecoder, pFrame);
+	}
+	else if( DEC_INIT_ERR == ret )
+	{
+		return GST_FLOW_ERROR;
+	}
+
+	if( decOut.dispIdx < 0 )
+	{
+		return GST_FLOW_OK;
+	}
+
+	GST_DEBUG_OBJECT( pNxVideoDec, " decOut.dispIdx: %d\n",decOut.dispIdx );
+
+	pMeta = (struct video_meta_mmap_buffer *)g_malloc(sizeof(struct video_meta_mmap_buffer));
+
+	if (!pMeta)
+	{
+		GST_ERROR_OBJECT(pNxVideoDec, "failed to malloc for meta");
+		gst_video_codec_frame_unref (pFrame);
+		return GST_FLOW_ERROR;
+	}
+
+	pImg = &decOut.hImg;
+	pMeta->v4l2BufferIdx = decOut.dispIdx;
+	pVadd = pImg->pBuffer[0];
+	pMeta->pNxVideoDec = pNxVideoDec;
+
+	videoImgSize = pNxVideoDec->pNxVideoDecHandle->width * pNxVideoDec->pNxVideoDecHandle->height * 1.5;
+
+	pGstmem = gst_memory_new_wrapped(GST_MEMORY_FLAG_READONLY,
+				pVadd,
+				videoImgSize,
+				0,
+				videoImgSize,
+				pMeta,
+				nxvideodec_buffer_finalize);
+
+	if (!pGstmem)
+	{
+		GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_memory_new_wrapped for mmap buffer");
+		gst_video_codec_frame_unref (pFrame);
+		goto HANDLE_ERROR;
+	}
+
+	pGstbuf = gst_buffer_new();
+	if (!pGstbuf)
+	{
+		GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_buffer_new");
+		gst_video_codec_frame_unref (pFrame);
+		goto HANDLE_ERROR;
+	}
+	gst_buffer_append_memory(pGstbuf, pGstmem);
+
+	n_planes = 3;
+	nxvideodec_get_offset_stride(pNxVideoDec->pNxVideoDecHandle->width, pNxVideoDec->pNxVideoDecHandle->height,
+									(guint8 *)pImg->pBuffer[0], offset, stride );
+
+	pState = gst_video_decoder_get_output_state (pDecoder);
+
+	pVmeta = gst_buffer_add_video_meta_full (pGstbuf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (&pState->info),
+											GST_VIDEO_INFO_WIDTH (&pState->info), GST_VIDEO_INFO_HEIGHT (&pState->info),
+											n_planes, offset, stride);
+	if (!pVmeta)
+	{
+		GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_buffer_add_video_meta_full");
+		gst_video_codec_state_unref (pState);
+		gst_video_codec_frame_unref (pFrame);
+		goto HANDLE_ERROR;
+	}
+
+	pMemMMVideoData = nxvideodec_mmvideobuf_copy(&decOut);
+	if (!pMemMMVideoData)
+	{
+		GST_ERROR("failed to get zero copy data");
+		gst_video_codec_state_unref (pState);
+		gst_video_codec_frame_unref (pFrame);
+		goto HANDLE_ERROR;
+	}
+	else
+	{
+		gst_buffer_append_memory(pGstbuf, pMemMMVideoData);
+	}
+	gst_buffer_add_mmvideobuffer_meta( pGstbuf, 1 );
+
+	pFrame->output_buffer = pGstbuf;
+
+	if( -1 == GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp) )
+	{
+		GST_DEBUG_OBJECT (pNxVideoDec, "Cannot Found Time Stamp!!!");
+	}
+	pFrame->pts = timeStamp;
+	GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
+
+	gst_video_codec_state_unref (pState);
+
+	ret = gst_video_decoder_finish_frame (pDecoder, pFrame);
+
+	FUNC_OUT();
+
+	return ret;
+
+HANDLE_ERROR:
+	if (pGstbuf)
+	{
+		g_free(pGstbuf);
+	}
+	if (pGstmem)
+	{
+		g_free(pGstmem);
+	}
+	if (pMeta)
+	{
+		nxvideodec_buffer_finalize(pMeta);
+	}
+
+	return GST_FLOW_ERROR;
+}
+#else
+static GstFlowReturn
+gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFrame)
+{
+	GstNxVideoDec *pNxVideoDec = GST_NXVIDEODEC (pDecoder);
+	NX_V4L2DEC_OUT decOut;
+	gint64 timeStamp = 0;
+	GstMapInfo mapInfo;
+	gint ret = 0;
+	gboolean bKeyFrame = FALSE;
+	GstMemory *pGstmem = NULL;
+	GstBuffer *pGstbuf = NULL;
+	struct video_meta_mmap_buffer *pMeta = NULL;
+	GstMemory *pMemMMVideoData = NULL;
 
 	FUNC_IN();
 
@@ -573,48 +804,50 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 
 	if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
 	{
-		GstNxDecOutBuffer *pDecOutBuffer = NULL;
-		GstMemory *pMemCopyData = NULL;
-		GstMemory *pMemDecOutBuffer = NULL;
+		pGstbuf = gst_buffer_new();
+		if (!pGstbuf)
+		{
+			GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_buffer_new");
+			gst_video_codec_frame_unref (pFrame);
+			goto HANDLE_ERROR;
+		}
 
-		pDecOutBuffer = nxvideodec_buffer_new();
-		pDecOutBuffer->v4l2BufferIdx = decOut.dispIdx;
-		pDecOutBuffer->pNxVideoDec = pNxVideoDec;
-		pMemCopyData = nxvideodec_copy_data(&decOut);
-
-		if (!pMemCopyData)
+		pMemMMVideoData = nxvideodec_mmvideobuf_copy(&decOut);
+		if (!pMemMMVideoData)
 		{
 			GST_ERROR("failed to get zero copy data");
-			return GST_FLOW_ERROR;
+			gst_video_codec_frame_unref (pFrame);
+			goto HANDLE_ERROR;
 		}
-		else
-		{
-			gst_buffer_append_memory(pDecOutBuffer->pGstBuffer, pMemCopyData);
-		}
+		gst_buffer_append_memory(pGstbuf, pMemMMVideoData);
 
-		pMemDecOutBuffer = gst_memory_new_wrapped(GST_MEMORY_FLAG_READONLY,
-								pDecOutBuffer,
-								sizeof(GstNxDecOutBuffer),
-								0,
-								sizeof(GstNxDecOutBuffer),
-								pDecOutBuffer,
-					(GDestroyNotify)nxvideodec_buffer_finalize);
-		if (pMemDecOutBuffer)
+		pMeta = (struct video_meta_mmap_buffer *)g_malloc(sizeof(struct video_meta_mmap_buffer));
+		if (!pMeta)
 		{
-			gst_buffer_append_memory(pDecOutBuffer->pGstBuffer, pMemDecOutBuffer);
-		}
-		else
-		{
-			GST_ERROR("failed to create mem_decoutbuf");
-			if (pMemDecOutBuffer)
-			{
-				nxvideodec_buffer_finalize(pDecOutBuffer);
-				gst_buffer_unref((GstBuffer *)pDecOutBuffer);
-			}
+			GST_ERROR_OBJECT(pNxVideoDec, "failed to malloc for meta");
+			gst_video_codec_frame_unref (pFrame);
 			return GST_FLOW_ERROR;
 		}
-		pFrame->output_buffer = pDecOutBuffer->pGstBuffer;
-		gst_buffer_add_mmvideobuffer_meta( pDecOutBuffer->pGstBuffer, 0 );
+		pMeta->v4l2BufferIdx = decOut.dispIdx;
+		pMeta->pNxVideoDec = pNxVideoDec;
+		pGstmem = gst_memory_new_wrapped(GST_MEMORY_FLAG_READONLY,
+										pMeta,
+										sizeof(struct video_meta_mmap_buffer),
+										0,
+										sizeof(struct video_meta_mmap_buffer),
+										pMeta,
+										nxvideodec_buffer_finalize);
+		if (!pGstmem)
+		{
+			GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_memory_new_wrapped for mmap buffer");
+			gst_video_codec_frame_unref (pFrame);
+			goto HANDLE_ERROR;
+		}
+		gst_buffer_append_memory(pGstbuf, pGstmem);
+
+		gst_buffer_add_mmvideobuffer_meta( pGstbuf, 0 );
+
+		pFrame->output_buffer = pGstbuf;
 
 		if( -1 == GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp) )
 		{
@@ -630,6 +863,14 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		guint8 *pPtr = NULL;;
 		GstVideoCodecState *pState = NULL;
 		GstFlowReturn flowRet;
+		guint8 *plu = NULL;
+		guint8 *pcb = NULL;
+		guint8 *pcr = NULL;
+		gint luStride = 0;
+		gint luVStride = 0;
+		gint cStride = 0;
+		gint cVStride = 0;
+
 		flowRet = gst_video_decoder_allocate_output_frame (pDecoder, pFrame);
 		pState = gst_video_decoder_get_output_state (pDecoder);
 		if (flowRet != GST_FLOW_OK)
@@ -657,8 +898,16 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		pImg = &decOut.hImg;
 		pPtr = GST_VIDEO_FRAME_COMP_DATA (&videoFrame, 0);
 
-		CopyImageToBufferYV12( (guint8*)pImg->pBuffer[0], (guint8*)pImg->pBuffer[1], (guint8*)pImg->pBuffer[2],
-			pPtr, pImg->stride[0], pImg->stride[1], pNxVideoDec->pNxVideoDecHandle->width, pNxVideoDec->pNxVideoDecHandle->height );
+		luStride = ALIGN(pNxVideoDec->pNxVideoDecHandle->width, 32);
+		luVStride = ALIGN(pNxVideoDec->pNxVideoDecHandle->height, 16);
+		cStride = luStride/2;
+		cVStride = ALIGN(pNxVideoDec->pNxVideoDecHandle->height/2, 16);
+		plu = (guint8 *)pImg->pBuffer[0];
+		pcb = plu + luStride * luVStride;
+		pcr = pcb + cStride * cVStride;
+
+		CopyImageToBufferYV12( (guint8*)plu, (guint8*)pcb, (guint8*)pcr,
+				pPtr, luStride, cStride, pNxVideoDec->pNxVideoDecHandle->width, pNxVideoDec->pNxVideoDecHandle->height );
 
 		DisplayDone( pNxVideoDec->pNxVideoDecHandle, decOut.dispIdx );
 
@@ -671,53 +920,59 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	FUNC_OUT();
 
 	return ret;
-}
 
-static void nxvideodec_buffer_finalize(GstNxDecOutBuffer *pBuffer)
+HANDLE_ERROR:
+	if (pGstbuf)
+	{
+		g_free(pGstbuf);
+	}
+	if (pGstmem)
+	{
+		g_free(pGstmem);
+	}
+	if (pMeta)
+	{
+		nxvideodec_buffer_finalize(pMeta);
+	}
+
+	return GST_FLOW_ERROR;
+}
+#endif
+
+static void nxvideodec_buffer_finalize(gpointer pData)
 {
 	gint ret = 0;
 
 	FUNC_IN();
 
-	if ( ( pBuffer->pNxVideoDec) && ( pBuffer->pNxVideoDec->pNxVideoDecHandle ) )
+	struct video_meta_mmap_buffer *pMeta = (struct video_meta_mmap_buffer *)pData;
+
+	if ( ( pMeta->pNxVideoDec) && ( pMeta->pNxVideoDec->pNxVideoDecHandle ) )
 	{
-		pthread_mutex_lock( &pBuffer->pNxVideoDec->mutex );
-		if( PLAY == pBuffer->pNxVideoDec->isState )
+		pthread_mutex_lock( &pMeta->pNxVideoDec->mutex );
+		if( PLAY == pMeta->pNxVideoDec->isState )
 		{
-			GST_DEBUG_OBJECT( pBuffer->pNxVideoDec, "v4l2BufferIdx: %d\n",pBuffer->v4l2BufferIdx );
-			ret = DisplayDone( pBuffer->pNxVideoDec->pNxVideoDecHandle, pBuffer->v4l2BufferIdx );
+			GST_DEBUG_OBJECT( pMeta->pNxVideoDec, "v4l2BufferIdx: %d\n",pMeta->v4l2BufferIdx );
+			ret = DisplayDone( pMeta->pNxVideoDec->pNxVideoDecHandle, pMeta->v4l2BufferIdx );
 			if ( ret )
 			{
 				g_print("Fail: DisplayDone !");
 			}
 		}
-		pthread_mutex_unlock( &pBuffer->pNxVideoDec->mutex );
+		pthread_mutex_unlock( &pMeta->pNxVideoDec->mutex );
 	}
 	else
 	{
 		GST_ERROR("Error: hCodec is null !");
 	}
 
-	if( pBuffer )
+	if( pMeta )
 	{
-		g_free(pBuffer);
+		g_free(pMeta);
 	}
-
-	FUNC_OUT();
 }
 
-static GstNxDecOutBuffer *nxvideodec_buffer_new(void)
-{
-	FUNC_IN();
-	GstNxDecOutBuffer *pBuffer = NULL;
-
-	pBuffer = (GstNxDecOutBuffer *)g_malloc(sizeof(GstNxDecOutBuffer));
-	pBuffer->pGstBuffer = gst_buffer_new();
-	FUNC_OUT();
-	return pBuffer;
-}
-
-static GstMemory *nxvideodec_copy_data(NX_V4L2DEC_OUT *pDecOut)
+static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut)
 {
 	GstMemory *pMeta = NULL;
 	MMVideoBuffer *pMMVideoBuf = NULL;
