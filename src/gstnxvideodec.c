@@ -926,10 +926,6 @@ HANDLE_ERROR:
 	{
 		g_free(pGstbuf);
 	}
-	if (pGstmem)
-	{
-		g_free(pGstmem);
-	}
 	if (pMeta)
 	{
 		nxvideodec_buffer_finalize(pMeta);
@@ -946,6 +942,11 @@ static void nxvideodec_buffer_finalize(gpointer pData)
 	FUNC_IN();
 
 	struct video_meta_mmap_buffer *pMeta = (struct video_meta_mmap_buffer *)pData;
+
+	if( !pMeta )
+	{
+		GST_ERROR("Error: pData is null !");
+	}
 
 	if ( ( pMeta->pNxVideoDec) && ( pMeta->pNxVideoDec->pNxVideoDecHandle ) )
 	{
