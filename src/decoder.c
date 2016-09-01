@@ -487,6 +487,10 @@ VideoDecodeFrame_Exit:
 
 void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 {
+	if(pDecHandle == NULL)
+	{
+		g_free(pDecHandle);
+	}
 	if( pDecHandle->hCodec )
 	{
 		NX_V4l2DecClose( pDecHandle->hCodec );
@@ -512,10 +516,7 @@ void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 		pDecHandle->pTmpStrmBuf = NULL;
 	}
 
-	if(pDecHandle)
-	{
-		g_free(pDecHandle);
-	}
+	g_free(pDecHandle);
 }
 
 gint DisplayDone( NX_VIDEO_DEC_STRUCT *pDecHandle, gint v4l2BufferIdx )
