@@ -379,6 +379,11 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 {
 	GstNxVideoDec *pNxVideoDec = GST_NXVIDEODEC (pDecoder);
 	FUNC_IN();
+	if (pNxVideoDec == NULL)
+	{
+		 GST_ERROR("pDecoder is NULL !\n");
+		 return FALSE;
+	}
 
 	GST_DEBUG_OBJECT (pNxVideoDec, "stop");
 
@@ -393,10 +398,7 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 		pNxVideoDec->pNxVideoDecHandle->pSem = NULL;
 	}
 
-	if (pNxVideoDec->pNxVideoDecHandle)
-	{
-		 CloseVideoDec(pNxVideoDec->pNxVideoDecHandle);
-	}
+	CloseVideoDec(pNxVideoDec->pNxVideoDecHandle);
 
 	pthread_mutex_destroy( &pNxVideoDec->mutex );
 
