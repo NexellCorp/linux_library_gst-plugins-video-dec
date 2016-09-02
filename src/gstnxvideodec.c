@@ -948,6 +948,7 @@ static void nxvideodec_buffer_finalize(gpointer pData)
 	if( !pMeta )
 	{
 		GST_ERROR("Error: pData is null !");
+		return;
 	}
 
 	if ( ( pMeta->pNxVideoDec) && ( pMeta->pNxVideoDec->pNxVideoDecHandle ) )

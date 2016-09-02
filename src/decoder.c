@@ -490,6 +490,8 @@ void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	if(pDecHandle == NULL)
 	{
 		g_free(pDecHandle);
+		GST_ERROR("pDecHandle is null\n");
+		return;
 	}
 	if( pDecHandle->hCodec )
 	{
