@@ -379,6 +379,11 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 {
 	GstNxVideoDec *pNxVideoDec = GST_NXVIDEODEC (pDecoder);
 	FUNC_IN();
+	if (pNxVideoDec == NULL)
+	{
+		 GST_ERROR("pDecoder is NULL !\n");
+		 return FALSE;
+	}
 
 	GST_DEBUG_OBJECT (pNxVideoDec, "stop");
 
@@ -393,10 +398,7 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 		pNxVideoDec->pNxVideoDecHandle->pSem = NULL;
 	}
 
-	if (pNxVideoDec->pNxVideoDecHandle)
-	{
-		 CloseVideoDec(pNxVideoDec->pNxVideoDecHandle);
-	}
+	CloseVideoDec(pNxVideoDec->pNxVideoDecHandle);
 
 	pthread_mutex_destroy( &pNxVideoDec->mutex );
 
@@ -926,10 +928,6 @@ HANDLE_ERROR:
 	{
 		g_free(pGstbuf);
 	}
-	if (pGstmem)
-	{
-		g_free(pGstmem);
-	}
 	if (pMeta)
 	{
 		nxvideodec_buffer_finalize(pMeta);
@@ -946,6 +944,12 @@ static void nxvideodec_buffer_finalize(gpointer pData)
 	FUNC_IN();
 
 	struct video_meta_mmap_buffer *pMeta = (struct video_meta_mmap_buffer *)pData;
+
+	if( !pMeta )
+	{
+		GST_ERROR("Error: pData is null !");
+		return;
+	}
 
 	if ( ( pMeta->pNxVideoDec) && ( pMeta->pNxVideoDec->pNxVideoDecHandle ) )
 	{
