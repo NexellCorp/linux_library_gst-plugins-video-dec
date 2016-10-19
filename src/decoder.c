@@ -313,7 +313,7 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 		}
 		else
 		{
-			if( V4L2_PIX_FMT_H263 == pHDec->codecType )
+			if( V4L2_PIX_FMT_H263 == pHDec->codecType || V4L2_PIX_FMT_MPEG2 == pHDec->codecType )
 			{
 				memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
 				decBufSize = pHDec->extraDataSize;
