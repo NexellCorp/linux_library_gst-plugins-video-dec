@@ -325,9 +325,24 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 			}
 			else if( V4L2_PIX_FMT_H264 == pHDec->codecType )
 			{
-				seqSize = h264Info->spsppsSize;
-				pSeqData = h264Info->spsppsData;
-				bDecode = TRUE;
+				if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+				{
+					gint size;
+					memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
+					decBufSize = h264Info->spsppsSize;
+					size = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, &isKey );
+					decBufSize += size;
+				}
+				// Annex B Type
+				else
+				{
+					memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
+					decBufSize = pHDec->extraDataSize;
+					memcpy( pDecBuf+decBufSize, pInBuf, inSize );
+					decBufSize += inSize;
+				}
+				seqSize = decBufSize;
+				pSeqData = pDecBuf;
 			}
 			else
 			{
