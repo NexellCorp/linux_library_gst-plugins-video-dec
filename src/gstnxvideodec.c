@@ -586,7 +586,7 @@ nxvideodec_get_offset_stride(gint width, gint height, guint8 *pSrc, gsize *pOffs
 	plu = pSrc;
 	pcb = plu + luStride * luVStride;
 	pcr = pcb + cStride * cVStride;
-	
+
 	pOffset[0] = 0;
 	pOffset[1] = pcb - plu;
 	pOffset[2] = pcr - plu;

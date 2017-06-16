@@ -15,6 +15,7 @@ static gint ParseH264Info( guint8 *pData, gint size, NX_AVCC_TYPE *pH264Info );
 static gint ParseAvcStream( guint8 *pInBuf, gint inSize, gint nalLengthSize, unsigned char *pBuffer, gint *pIsKey );
 static gint InitializeCodaVpu( NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pInitBuf, gint initBufSize );
 static gint FlushDecoder( NX_VIDEO_DEC_STRUCT *pNxVideoDecHandle );
+static gint Initialize( NX_VIDEO_DEC_STRUCT *pHDec, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame, guint8 *pInBuf, gint inSize, gint64 timestamp, NX_AVCC_TYPE *h264Info );
 //TimeStamp
 static void InitVideoTimeStamp( NX_VIDEO_DEC_STRUCT *hDec);
 static void PushVideoTimeStamp( NX_VIDEO_DEC_STRUCT *hDec, gint64 timestamp, guint flag );
@@ -199,6 +200,7 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 
 	pDecHandle->pTmpStrmBuf = g_malloc(MAX_INPUT_BUF_SIZE);
 	pDecHandle->tmpStrmBufSize = MAX_INPUT_BUF_SIZE;
+	pDecHandle->tmpStrmBufIndex = 0;
 
 	InitVideoTimeStamp(pDecHandle);
 
@@ -231,6 +233,7 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 		pHDec->bFlush = FALSE;
 		pHDec->bNeedKey = TRUE;
 		pHDec->bNeedIframe = TRUE;
+		pHDec->bIsFlush = TRUE;
 	}
 
 	if( pHDec->bNeedKey )
@@ -262,122 +265,93 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 
 	if( FALSE == pHDec->bInitialized )
 	{
-		gint seqSize = 0;
-		guint8 *pSeqData = NULL;
-		gboolean bDecode = FALSE;
-		pDecBuf = pHDec->pTmpStrmBuf;
+		ret = Initialize( pHDec, pGstBuf, pDecOut, bKeyFrame, pInBuf, inSize, timestamp, h264Info );
 
-		if( 0 == pHDec->extraDataSize )
+		if( (ret == DEC_ERR) && (pDecOut->dispIdx = -1) )
 		{
-			if ( ( (GST_BUFFER_FLAG_DISCONT | GST_BUFFER_FLAG_DELTA_UNIT) == GST_BUFFER_FLAGS(pGstBuf) ) &&
-				 (0 == bKeyFrame) )
+			goto VideoDecodeFrame_Exit;
+		}
+		else if( (ret == DEC_INIT_ERR) || (ret == DEC_ERR) )
+		{
+			goto VideoDecodeFrame_Exit;
+		}
+		else if( (ret == 0) && (pDecOut->dispIdx = -1) )
+		{
+			if( 0 == pHDec->extraDataSize )
 			{
-				pDecOut->dispIdx = -1;
-				return ret;
-			}
-
-			if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
-			{
-				gint size = 0;
-				if( 0 == GST_BUFFER_DURATION(pGstBuf) )
+				if ( ( (GST_BUFFER_FLAG_DISCONT | GST_BUFFER_FLAG_DELTA_UNIT) == GST_BUFFER_FLAGS(pGstBuf) ) &&
+				 	(0 == bKeyFrame) )
 				{
-					size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
-					pHDec->size = pHDec->size + size;
-					pHDec->pos = pHDec->pos + size;
-
-					pDecOut->dispIdx = -1;
-					ret = DEC_ERR;
-					goto VideoDecodeFrame_Exit;
+					return ret;
 				}
-				else
-				{
-					size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
-					pHDec->size = pHDec->size + size;
-					pHDec->pos = pHDec->pos + size;
-					seqSize = pHDec->pos;
-					pSeqData = pDecBuf;
-					bDecode = TRUE;
-				}
-			}
-			else if( V4L2_PIX_FMT_DIV3 == pHDec->codecType )
-			{
-				seqSize = 0;
-				pSeqData = NULL;
-				bDecode = TRUE;
 			}
 			else
 			{
-				seqSize = inSize;
-				pSeqData = pInBuf;
+				goto VideoDecodeFrame_Exit;
 			}
 		}
-		else
+	}
+	else
+	{
+		if(pHDec->bIsFlush)
 		{
-			if( V4L2_PIX_FMT_H263 == pHDec->codecType || V4L2_PIX_FMT_MPEG2 == pHDec->codecType )
-			{
-				memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
-				decBufSize = pHDec->extraDataSize;
-				memcpy( pDecBuf+decBufSize, pInBuf, inSize );
-				decBufSize += inSize;
+			// Input to two frame NX_V4l2DecDecodeFrame() after seek(flush)
+			pHDec->frameCount++;
 
-				seqSize = decBufSize;
-				pSeqData = pDecBuf;
-			}
-			else if( V4L2_PIX_FMT_H264 == pHDec->codecType )
+			if( pHDec->codecType == V4L2_PIX_FMT_H264 )
 			{
-				if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+				if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
 				{
-					gint size;
-					memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
-					decBufSize = h264Info->spsppsSize;
-					size = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, &isKey );
-					decBufSize += size;
+					pDecBuf = pHDec->pTmpStrmBuf + pHDec->tmpStrmBufIndex;
+					decBufSize = ParseAvcStream( pInBuf, inSize, 4, pDecBuf, &isKey );
+					pHDec->tmpStrmBufIndex = pHDec->tmpStrmBufIndex + decBufSize;
+				}
+				else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+				{
+					pDecBuf = pHDec->pTmpStrmBuf  + pHDec->tmpStrmBufIndex ;
+					decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, &isKey );
+					pHDec->tmpStrmBufIndex = pHDec->tmpStrmBufIndex + decBufSize;
 				}
 				// Annex B Type
 				else
 				{
-					memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
-					decBufSize = pHDec->extraDataSize;
-					memcpy( pDecBuf+decBufSize, pInBuf, inSize );
-					decBufSize += inSize;
+					memcpy( pHDec->pTmpStrmBuf + pHDec->tmpStrmBufIndex, pInBuf, inSize );
+					pHDec->tmpStrmBufIndex = pHDec->tmpStrmBufIndex + inSize;
 				}
-				seqSize = decBufSize;
-				pSeqData = pDecBuf;
 			}
 			else
 			{
-				seqSize = pHDec->extraDataSize;
-				pSeqData = pHDec->pExtraData;
-				bDecode = TRUE;
+				memcpy( pHDec->pTmpStrmBuf + pHDec->tmpStrmBufIndex, pInBuf, inSize );
+				pHDec->tmpStrmBufIndex = pHDec->tmpStrmBufIndex + inSize;
+
+			}
+			if( pHDec->frameCount >= 2)
+			{
+				pHDec->bIsFlush = FALSE;
+				pHDec->frameCount = 0;
+				pDecBuf = pHDec->pTmpStrmBuf;
+				decBufSize = pHDec->tmpStrmBufIndex;
+				pHDec->tmpStrmBufIndex = 0;
+			}
+			else
+			{
+				ret = 0;
+				pDecOut->dispIdx = -1;
+				goto VideoDecodeFrame_Exit;
 			}
 		}
-
-		// Initialize VPU
-		ret = InitializeCodaVpu(pHDec, pSeqData, seqSize);
-
-		if( 0 > ret )
-		{
-			GST_ERROR("VPU initialized Failed!!!!\n");
-			NX_V4l2DecClose( pHDec->hCodec );
-			pHDec->hCodec = NULL;
-			ret = DEC_INIT_ERR;
-			goto VideoDecodeFrame_Exit;
-		}
-
-		pHDec->bInitialized = TRUE;
-
-		if( TRUE == bDecode )
+		else
 		{
 			if( pHDec->codecType == V4L2_PIX_FMT_H264 )
 			{
 				if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
 				{
-					pDecBuf = pDecBuf + pHDec->pos - inSize;
-					decBufSize = inSize;
+					pDecBuf = pHDec->pTmpStrmBuf ;
+					decBufSize = ParseAvcStream( pInBuf, inSize, 4, pDecBuf, &isKey );
 				}
 				else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
 				{
-					pDecBuf = pHDec->pTmpStrmBuf;
+					pDecBuf = pHDec->pTmpStrmBuf ;
 					decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, &isKey );
 				}
 				// Annex B Type
@@ -392,71 +366,6 @@ gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V
 				pDecBuf = pInBuf;
 				decBufSize = inSize;
 			}
-
-			decIn.strmBuf = pDecBuf;
-			decIn.strmSize = decBufSize;
-			decIn.timeStamp = timestamp;
-			decIn.eos = 0;
-			VDecSemPend(pHDec->pSem);
-			ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
-
-			if( (0 == ret ) && (0 <= pDecOut->dispIdx) )
-			{
-				if( (TRUE == pHDec->bNeedIframe) && (PIC_TYPE_I != pDecOut->picType[DISPLAY_FRAME]) )
-				{
-					NX_V4l2DecClrDspFlag( pHDec->hCodec, NULL, pDecOut->dispIdx );
-					VDecSemPost( pHDec->pSem );
-					ret = DEC_ERR;
-					goto VideoDecodeFrame_Exit;
-				}
-				else
-				{
-					pHDec->bNeedIframe = FALSE;
-				}
-			}
-
-			if( (0 != ret ) || (0 > pDecOut->dispIdx) )
-			{
-				VDecSemPost( pHDec->pSem );
-			}
-
-			if( 0 != ret )
-			{
-				g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
-				ret = DEC_ERR;
-			}
-		}
-		else
-		{
-			ret = 0;
-			pDecOut->dispIdx = -1;
-		}
-	}
-	else
-	{
-		if( pHDec->codecType == V4L2_PIX_FMT_H264 )
-		{
-			if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
-			{
-				pDecBuf = pHDec->pTmpStrmBuf;
-				decBufSize = ParseAvcStream( pInBuf, inSize, 4, pDecBuf, &isKey );
-			}
-			else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
-			{
-				pDecBuf = pHDec->pTmpStrmBuf;
-				decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, &isKey );
-			}
-			// Annex B Type
-			else
-			{
-				pDecBuf = pInBuf;
-				decBufSize = inSize;
-			}
-		}
-		else
-		{
-			pDecBuf = pInBuf;
-			decBufSize = inSize;
 		}
 
 		decIn.strmBuf = pDecBuf;
@@ -606,6 +515,185 @@ gint CopyImageToBufferYV12( uint8_t *pSrcY, uint8_t *pSrcU, uint8_t *pSrcV, uint
 	return 0;
 }
 
+static gint Initialize( NX_VIDEO_DEC_STRUCT *pHDec, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame, guint8 *pInBuf, gint inSize, gint64 timestamp, NX_AVCC_TYPE *h264Info )
+{
+	gint seqSize = 0;
+	gint ret = 0;
+	guint8 *pSeqData = NULL;
+	gboolean bDecode = FALSE;
+	gint isKey = 0;
+	gint decBufSize = 0;
+	NX_V4L2DEC_IN decIn;
+	guint8 *pDecBuf = pHDec->pTmpStrmBuf;
+
+	if( 0 == pHDec->extraDataSize )
+	{
+		if ( ( (GST_BUFFER_FLAG_DISCONT | GST_BUFFER_FLAG_DELTA_UNIT) == GST_BUFFER_FLAGS(pGstBuf) ) &&
+			 (0 == bKeyFrame) )
+		{
+			pDecOut->dispIdx = -1;
+			return ret;
+		}
+
+		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+		{
+			gint size = 0;
+			if( 0 == GST_BUFFER_DURATION(pGstBuf) )
+			{
+				size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
+				pHDec->size = pHDec->size + size;
+				pHDec->pos = pHDec->pos + size;
+
+				pDecOut->dispIdx = -1;
+				ret = DEC_ERR;
+				return ret;
+			}
+			else
+			{
+				size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
+				pHDec->size = pHDec->size + size;
+				pHDec->pos = pHDec->pos + size;
+				seqSize = pHDec->pos;
+				pSeqData = pDecBuf;
+				bDecode = TRUE;
+			}
+		}
+		else if( V4L2_PIX_FMT_DIV3 == pHDec->codecType )
+		{
+			seqSize = 0;
+			pSeqData = NULL;
+			bDecode = TRUE;
+		}
+		else
+		{
+			seqSize = inSize;
+			pSeqData = pInBuf;
+		}
+	}
+	else
+	{
+		if( V4L2_PIX_FMT_H263 == pHDec->codecType || V4L2_PIX_FMT_MPEG2 == pHDec->codecType )
+		{
+			memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
+			decBufSize = pHDec->extraDataSize;
+			memcpy( pDecBuf+decBufSize, pInBuf, inSize );
+			decBufSize += inSize;
+
+			seqSize = decBufSize;
+			pSeqData = pDecBuf;
+		}
+		else if( V4L2_PIX_FMT_H264 == pHDec->codecType )
+		{
+			if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+			{
+				gint size;
+				memcpy( pDecBuf, h264Info->spsppsData, h264Info->spsppsSize );
+				decBufSize = h264Info->spsppsSize;
+				size = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf+decBufSize, &isKey );
+				decBufSize += size;
+			}
+			// Annex B Type
+			else
+			{
+				memcpy( pDecBuf, pHDec->pExtraData, pHDec->extraDataSize );
+				decBufSize = pHDec->extraDataSize;
+				memcpy( pDecBuf+decBufSize, pInBuf, inSize );
+				decBufSize += inSize;
+			}
+			seqSize = decBufSize;
+			pSeqData = pDecBuf;
+		}
+		else
+		{
+			seqSize = pHDec->extraDataSize;
+			pSeqData = pHDec->pExtraData;
+			bDecode = TRUE;
+		}
+	}
+
+	// Initialize VPU
+	ret = InitializeCodaVpu(pHDec, pSeqData, seqSize);
+
+	if( 0 > ret )
+	{
+		GST_ERROR("VPU initialized Failed!!!!\n");
+		NX_V4l2DecClose( pHDec->hCodec );
+		pHDec->hCodec = NULL;
+		ret = DEC_INIT_ERR;
+		return ret;
+	}
+
+	pHDec->bInitialized = TRUE;
+
+	if( TRUE == bDecode )
+	{
+		if( pHDec->codecType == V4L2_PIX_FMT_H264 )
+		{
+			if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+			{
+				pDecBuf = pDecBuf + pHDec->pos - inSize;
+				decBufSize = inSize;
+			}
+			else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
+			{
+				pDecBuf = pHDec->pTmpStrmBuf;
+				decBufSize = ParseAvcStream( pInBuf, inSize, h264Info->nalLengthSize, pDecBuf, &isKey );
+			}
+			// Annex B Type
+			else
+			{
+				pDecBuf = pInBuf;
+				decBufSize = inSize;
+			}
+		}
+		else
+		{
+			pDecBuf = pInBuf;
+			decBufSize = inSize;
+		}
+
+		decIn.strmBuf = pDecBuf;
+		decIn.strmSize = decBufSize;
+		decIn.timeStamp = timestamp;
+		decIn.eos = 0;
+		VDecSemPend(pHDec->pSem);
+		ret = NX_V4l2DecDecodeFrame( pHDec->hCodec,&decIn, pDecOut );
+
+		if( (0 == ret ) && (0 <= pDecOut->dispIdx) )
+		{
+			if( (TRUE == pHDec->bNeedIframe) && (PIC_TYPE_I != pDecOut->picType[DISPLAY_FRAME]) )
+			{
+				NX_V4l2DecClrDspFlag( pHDec->hCodec, NULL, pDecOut->dispIdx );
+				VDecSemPost( pHDec->pSem );
+				ret = DEC_ERR;
+				return ret;
+			}
+			else
+			{
+				pHDec->bNeedIframe = FALSE;
+			}
+		}
+
+		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
+		{
+			VDecSemPost( pHDec->pSem );
+		}
+
+		if( 0 != ret )
+		{
+			g_print("NX_V4l2DecDecodeFrame!!!!, ret = %d\n",ret);
+			ret = DEC_ERR;
+		}
+	}
+	else
+	{
+		ret = 0;
+		pDecOut->dispIdx = -1;
+	}
+
+	return ret;
+}
+
 static gint FlushDecoder( NX_VIDEO_DEC_STRUCT *pDecHandle )
 {
 
@@ -663,6 +751,9 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		pHDec->pSem = VDecSemCreate( MAX_OUTPUT_BUF );
 		g_print("<<<<<<<<<< InitializeCodaVpu(Min=%d, %dx%d) (ret = %d) >>>>>>>>>\n",
 			pHDec->minRequiredFrameBuffer, seqOut.width, seqOut.height, ret );
+
+		pHDec->frameCount = 0;
+		pHDec->bIsFlush = FALSE;
 	}
 
 	FUNC_OUT();

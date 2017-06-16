@@ -94,6 +94,7 @@ struct _NX_VIDEO_DEC_STRUCT
 	//	Temporal Buffer
 	guint8 *pTmpStrmBuf;
 	gint tmpStrmBufSize;
+	gint tmpStrmBufIndex;
 	//	Output Timestamp
 	struct OutBufferTimeInfo	outTimeStamp[NX_MAX_BUF];
 	gint				inFlag;
@@ -104,6 +105,11 @@ struct _NX_VIDEO_DEC_STRUCT
 	//	for H.264
 	NX_AVCC_TYPE *pH264Info;
 	gint h264Alignment;
+
+	// Input to two frame NX_V4l2DecDecodeFrame() after seek(flush)
+	gint frameCount;
+
+	gboolean bIsFlush;
 
 	NX_VDEC_SEMAPHORE *pSem;
 };
