@@ -23,7 +23,8 @@ libgstnxvideodec_la_LIBADD = \
 	-lgstvideo-1.0		\
 	-lgstpbutils-1.0	\
 	-lnxgstmeta			\
-	-lnx_video_api
+	-lnx_video_api		\
+	-ldrm
 
 libgstnxvideodec_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -L$(libdir)
 libgstnxvideodec_la_LIBTOOLFLAGS = --tag=disable-static
