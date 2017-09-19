@@ -520,7 +520,7 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 
 	gst_video_codec_state_unref( pOutputState );
 
-	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 1;
+	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 3;
 #if SUPPORT_NO_MEMORY_COPY
 	GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
 #else
@@ -586,7 +586,7 @@ nxvideodec_get_offset_stride(gint width, gint height, guint8 *pSrc, gsize *pOffs
 	plu = pSrc;
 	pcb = plu + luStride * luVStride;
 	pcr = pcb + cStride * cVStride;
-	
+
 	pOffset[0] = 0;
 	pOffset[1] = pcb - plu;
 	pOffset[2] = pcr - plu;

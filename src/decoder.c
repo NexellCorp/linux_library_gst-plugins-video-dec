@@ -635,7 +635,8 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		pHDec->bufferCountActual = seqOut.minBuffers + MAX_OUTPUT_BUF;
 		seqIn.numBuffers = pHDec->bufferCountActual;
 		seqIn.imgPlaneNum = pHDec->imgPlaneNum;
-		seqIn.imgFormat = V4L2_PIX_FMT_YVU420M;
+		seqIn.imgFormat = V4L2_PIX_FMT_YUV420M;
+
 		ret = NX_V4l2DecInit( pHDec->hCodec, &seqIn );
 
 		if( 0 != ret)
