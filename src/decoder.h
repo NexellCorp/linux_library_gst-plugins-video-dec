@@ -90,10 +90,14 @@ struct _NX_VIDEO_DEC_STRUCT
 	gint imgPlaneNum;
 	gint pos;
 	gint size;
+	gint inFlushFrameCount;
+	gint bIsFlush;
 
 	//	Temporal Buffer
 	guint8 *pTmpStrmBuf;
 	gint tmpStrmBufSize;
+	guint8 *pSeekTmpBuf;
+	gint seekTmpBufIndex;
 	//	Output Timestamp
 	struct OutBufferTimeInfo	outTimeStamp[NX_MAX_BUF];
 	gint				inFlag;

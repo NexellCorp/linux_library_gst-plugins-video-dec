@@ -857,6 +857,20 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		}
 		pFrame->pts = timeStamp;
 		GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
+
+		if(-2 == timeStamp)
+		{
+			//
+			//add hcjun 2018-01-24
+			// -2 means invalid timestamp.
+			pFrame->pts = GST_CLOCK_TIME_NONE;
+			GST_BUFFER_PTS(pFrame->output_buffer) = GST_CLOCK_TIME_NONE;
+		}
+		else
+		{
+			pFrame->pts = timeStamp;
+			GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
+		}
 	}
 	else
 	{
