@@ -1,3 +1,9 @@
+gst-plugins-video-dec (1.0.4) xenial; urgency=medium
+
+  * fix memory leak
+
+ -- Hwansoon Sung <hs2704.sung@samsung.com>  Thu, 08 Feb 2018 14:44:51 +0900
+
 gst-plugins-video-dec (1.0.2) unstable; urgency=medium
 
   * Initial release
