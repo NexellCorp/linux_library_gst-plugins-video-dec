@@ -790,15 +790,18 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if( DEC_ERR == ret )
 	{
 		GetTimeStamp(pNxVideoDec->pNxVideoDecHandle, &timeStamp);
+		gst_video_codec_frame_unref (pFrame);
 		return gst_video_decoder_drop_frame(pDecoder, pFrame);
 	}
 	else if( DEC_INIT_ERR == ret )
 	{
+		gst_video_codec_frame_unref (pFrame);
 		return GST_FLOW_ERROR;
 	}
 
 	if( decOut.dispIdx < 0 )
 	{
+		gst_video_codec_frame_unref (pFrame);
 		return GST_FLOW_OK;
 	}
 
