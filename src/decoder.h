@@ -14,6 +14,7 @@ G_BEGIN_DECLS
 #define	VID_OUTPORT_MIN_BUF_CNT_H264_1080P		12		// 1080p
 
 #define	MAX_INPUT_BUF_SIZE		(1024*1024*4)
+#define INVALID_TIMESTAMP -2
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -87,7 +88,6 @@ struct _NX_VIDEO_DEC_STRUCT
 	gboolean bFlush;
 	gboolean bNeedKey;
 	gboolean bNeedIframe;
-	gint imgPlaneNum;
 	gint pos;
 	gint size;
 	gint inFlushFrameCount;
@@ -110,6 +110,8 @@ struct _NX_VIDEO_DEC_STRUCT
 	gint h264Alignment;
 
 	NX_VDEC_SEMAPHORE *pSem;
+
+	gint (*pVideoDecodeFrame)( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 };
 //
 //////////////////////////////////////////////////////////////////////////////
