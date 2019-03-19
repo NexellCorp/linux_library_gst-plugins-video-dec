@@ -520,7 +520,6 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 
 	gst_video_codec_state_unref( pOutputState );
 
-	pNxVideoDec->pNxVideoDecHandle->imgPlaneNum = 3;
 #if SUPPORT_NO_MEMORY_COPY
 	GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
 #else
@@ -794,11 +793,13 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	}
 	else if( DEC_INIT_ERR == ret )
 	{
+		gst_video_codec_frame_unref (pFrame);
 		return GST_FLOW_ERROR;
 	}
 
 	if( decOut.dispIdx < 0 )
 	{
+		gst_video_codec_frame_unref (pFrame);
 		return GST_FLOW_OK;
 	}
 
@@ -858,11 +859,11 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		pFrame->pts = timeStamp;
 		GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
 
-		if(-2 == timeStamp)
+		if(INVALID_TIMESTAMP == timeStamp)
 		{
 			//
 			//add hcjun 2018-01-24
-			// -2 means invalid timestamp.
+			//
 			pFrame->pts = GST_CLOCK_TIME_NONE;
 			GST_BUFFER_PTS(pFrame->output_buffer) = GST_CLOCK_TIME_NONE;
 		}
