@@ -1078,10 +1078,10 @@ plugin_init (GstPlugin * plugin)
 #define VERSION "0.1.0"
 #endif
 #ifndef PACKAGE
-#define PACKAGE "S5P6818 GStreamer PlugIn"
+#define PACKAGE "S5PXX18/NXP4330/NXP322X GStreamer PlugIn"
 #endif
 #ifndef PACKAGE_NAME
-#define PACKAGE_NAME "S5P6818 GStreamer PlugIn"
+#define PACKAGE_NAME "S5PXX18/NXP4330/NXP322X GStreamer PlugIn"
 #endif
 #ifndef GST_PACKAGE_ORIGIN
 #define GST_PACKAGE_ORIGIN "http://www.nexell.co.kr"
@@ -1091,7 +1091,7 @@ GST_PLUGIN_DEFINE (
 	GST_VERSION_MAJOR,
 	GST_VERSION_MINOR,
 	nxvideodec,
-	"Nexell H/W Video Decoder for S5P6818",
+	"Nexell H/W Video Decoder for S5PXX18/NXP4330/NXP322X",
 	plugin_init, VERSION,
 	"LGPL",
 	PACKAGE_NAME,
