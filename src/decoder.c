@@ -1175,47 +1175,48 @@ gint GetTimeStamp(NX_VIDEO_DEC_STRUCT *pDecHandle, gint64 *pTimestamp)
 }
 
 // Copy Image YV12 to General YV12
-gint CopyImageToBufferYV12( uint8_t *pSrcY, uint8_t *pSrcU, uint8_t *pSrcV, uint8_t *pDst, uint32_t strideY, uint32_t strideUV, uint32_t width, uint32_t height )
+gint CopyImageToBufferYV12( NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst )
 {
-	uint32_t i;
-	if( width == strideY )
+	int32_t iLumaWidth, iLumaHeight;
+	int32_t iChromaWidth, iChromaHeight;
+
+	if( NULL == pInMemory->pBuffer[0] )
 	{
-		memcpy( pDst, pSrcY, width*height );
-		pDst += width*height;
-	}
-	else
-	{
-		for( i=0 ; i<height ; i++ )
+		if( 0 > NX_MapVideoMemory( pInMemory ) )
 		{
-			memcpy( pDst, pSrcY, width );
-			pSrcY += strideY;
-			pDst += width;
+			GST_ERROR("Fail, CopyImageToBufferYV12():NX_MapVideoMemory().\n");
+			return -1;
 		}
 	}
 
-	width /= 2;
-	height /= 2;
-	if( width == strideUV )
+	iLumaWidth  = pInMemory->width;
+	iLumaHeight = pInMemory->height;
+	iChromaWidth  = pInMemory->width >> 1;
+	iChromaHeight = pInMemory->height >> 1;
+
+	// Copy Luma
 	{
-		memcpy( pDst, pSrcU, width*height );
-		pDst += width*height;
-		memcpy( pDst, pSrcV, width*height );
-	}
-	else
-	{
-		for( i=0 ; i<height ; i++ )
+		uint8_t *pSrcV = (uint8_t*)pInMemory->pBuffer[0];
+		for( int32_t h = 0; h < iLumaHeight; h++ )
 		{
-			memcpy( pDst, pSrcU, width );
-			pSrcY += strideY;
-			pDst += width;
-		}
-		for( i=0 ; i<height ; i++ )
-		{
-			memcpy( pDst, pSrcV, width );
-			pSrcY += strideY;
-			pDst += width;
+			memcpy( pDst, pSrcV, iLumaWidth );
+			pSrcV += pInMemory->stride[0];
+			pDst += iLumaWidth;
 		}
 	}
+
+	// Copy Chroma
+	for( int32_t i = 1; i < pInMemory->planes; i++ )
+	{
+		uint8_t *pSrcV = (uint8_t*)pInMemory->pBuffer[i];
+		for( int32_t h = 0; h < iChromaHeight; h++ )
+		{
+			memcpy( pDst, pSrcV, iChromaWidth );
+			pSrcV += pInMemory->stride[i];
+			pDst += iChromaWidth;
+		}
+	}
+
 	return 0;
 }
 
