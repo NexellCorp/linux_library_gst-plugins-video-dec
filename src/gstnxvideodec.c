@@ -877,16 +877,9 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	{
 		GstVideoFrame videoFrame;
 		NX_VID_MEMORY_INFO *pImg = NULL;
-		guint8 *pPtr = NULL;;
+		guint8 *pDst = NULL;;
 		GstVideoCodecState *pState = NULL;
 		GstFlowReturn flowRet;
-		guint8 *plu = NULL;
-		guint8 *pcb = NULL;
-		guint8 *pcr = NULL;
-		gint luStride = 0;
-		gint luVStride = 0;
-		gint cStride = 0;
-		gint cVStride = 0;
 
 		flowRet = gst_video_decoder_allocate_output_frame (pDecoder, pFrame);
 		pState = gst_video_decoder_get_output_state (pDecoder);
@@ -913,23 +906,20 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		GST_BUFFER_PTS(pFrame->output_buffer) = timeStamp;
 
 		pImg = &decOut.hImg;
-		pPtr = GST_VIDEO_FRAME_COMP_DATA (&videoFrame, 0);
+		pDst = GST_VIDEO_FRAME_COMP_DATA (&videoFrame, 0);
 
-		luStride = ALIGN(pNxVideoDec->pNxVideoDecHandle->width, 32);
-		luVStride = ALIGN(pNxVideoDec->pNxVideoDecHandle->height, 16);
-		cStride = luStride/2;
-		cVStride = ALIGN(pNxVideoDec->pNxVideoDecHandle->height/2, 16);
-		plu = (guint8 *)pImg->pBuffer[0];
-		pcb = plu + luStride * luVStride;
-		pcr = pcb + cStride * cVStride;
-
-		CopyImageToBufferYV12( (guint8*)plu, (guint8*)pcb, (guint8*)pcr,
-				pPtr, luStride, cStride, pNxVideoDec->pNxVideoDecHandle->width, pNxVideoDec->pNxVideoDecHandle->height );
+		ret = CopyImageToBufferYV12( pImg, pDst );
 
 		DisplayDone( pNxVideoDec->pNxVideoDecHandle, decOut.dispIdx );
 
 		gst_video_frame_unmap (&videoFrame);
 		gst_video_codec_state_unref (pState);
+
+		if(ret != 0)
+		{
+			gst_video_codec_frame_unref (pFrame);
+			return GST_FLOW_ERROR;
+		}
 	}
 
 	ret = gst_video_decoder_finish_frame (pDecoder, pFrame);
