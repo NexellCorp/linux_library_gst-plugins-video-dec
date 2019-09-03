@@ -127,8 +127,8 @@ struct video_meta_mmap_buffer
 	GstNxVideoDec *pNxVideoDec;
 };
 
-#define	PLUGIN_LONG_NAME		"S5P6818 H/W Video Decoder"
-#define PLUGIN_DESC				"Nexell H/W Video Decoder for S5P6818, Version: 0.1.0"
+#define	PLUGIN_LONG_NAME		"S5PXX18/NXP4330/NXP322X H/W Video Decoder"
+#define PLUGIN_DESC				"Nexell H/W Video Decoder for S5PXX18/NXP4330/NXP322X, Version: 0.1.0"
 #define	PLUGIN_AUTHOR			"Hyun Chul Jun <hcjun@nexell.co.kr>"
 
 // pad templates
@@ -140,9 +140,19 @@ GST_STATIC_PAD_TEMPLATE ("src",
 						 "format = (string) { I420 }, "
 						 "width = (int) [ 64, 1920 ], "
 						"height = (int) [ 64, 1088 ] "
-										)
+		)
+);
 
-		);
+static GstStaticPadTemplate gst_nxvideodec_src_template_nxp3220 =
+GST_STATIC_PAD_TEMPLATE ("src",
+		GST_PAD_SRC,
+		GST_PAD_ALWAYS,
+		GST_STATIC_CAPS ("video/x-raw, "
+						 "format = (string) { NV12 }, "
+						 "width = (int) [ 64, 1920 ], "
+						"height = (int) [ 64, 1088 ] "
+		)
+);
 
 
 static void
@@ -232,7 +242,14 @@ nxvideodec_base_init (gpointer gclass)
 	// pad templates
 	pKlass->pSinktempl = gst_pad_template_new ("sink", GST_PAD_SINK, GST_PAD_ALWAYS, pCapslist);
 	gst_element_class_add_pad_template (pElement_class, pKlass->pSinktempl);
-	gst_element_class_add_pad_template (pElement_class, gst_static_pad_template_get (&gst_nxvideodec_src_template));
+	if( IsCpuNXP322X() )
+	{
+		gst_element_class_add_pad_template (pElement_class, gst_static_pad_template_get (&gst_nxvideodec_src_template_nxp3220));
+	}
+	else
+	{
+		gst_element_class_add_pad_template (pElement_class, gst_static_pad_template_get (&gst_nxvideodec_src_template));
+	}
 
 	FUNC_OUT();
 }
@@ -416,6 +433,7 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 	GstVideoCodecState *pOutputState = NULL;
 	NX_VIDEO_DEC_STRUCT *pDecHandle = NULL;
 	gint ret = FALSE;
+	gint videoFormat = GST_VIDEO_FORMAT_I420;
 
 	FUNC_IN();
 
@@ -509,11 +527,20 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 		}
 	}
 
-	pOutputState =	gst_video_decoder_set_output_state (pDecoder, GST_VIDEO_FORMAT_I420,
+	if(pDecHandle->bIsNX322x)
+	{
+		videoFormat = GST_VIDEO_FORMAT_NV12;
+	}
+	else
+	{
+		videoFormat = GST_VIDEO_FORMAT_I420;
+	}
+
+	pOutputState =	gst_video_decoder_set_output_state (pDecoder, videoFormat,
 								pDecHandle->width, pDecHandle->height, pNxVideoDec->pInputState);
 
 	pOutputState->caps = gst_caps_new_simple ("video/x-raw",
-			"format", G_TYPE_STRING, gst_video_format_to_string (GST_VIDEO_FORMAT_I420),
+			"format", G_TYPE_STRING, gst_video_format_to_string (videoFormat),
 			"width", G_TYPE_INT, pDecHandle->width,
 			"height", G_TYPE_INT, pDecHandle->height,
 			"framerate", GST_TYPE_FRACTION, pDecHandle->fpsNum, pDecHandle->fpsDen, NULL);
@@ -1008,6 +1035,23 @@ static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut)
 		pMMVideoBuf->stride_height[0] = GST_ROUND_UP_16(pDecOut->hImg.height);
 		pMMVideoBuf->stride_height[1] = GST_ROUND_UP_16(pDecOut->hImg.height >> 1);
 		pMMVideoBuf->stride_height[2] = pMMVideoBuf->stride_height[1];
+		pMMVideoBuf->size[0] = pDecOut->hImg.size[0];
+		pMMVideoBuf->data[0] = pDecOut->hImg.pBuffer[0];
+		pMMVideoBuf->handle_num = 1;
+		pMMVideoBuf->handle.gem[0] = pDecOut->hImg.flink[0];
+		pMMVideoBuf->buffer_index = pDecOut->dispIdx;
+	}
+	else if( 2 == pDecOut->hImg.planes)
+	{
+		pMMVideoBuf->type = MM_VIDEO_BUFFER_TYPE_GEM;
+		pMMVideoBuf->format = MM_PIXEL_FORMAT_NV12;
+		pMMVideoBuf->plane_num = 2;
+		pMMVideoBuf->width[0] = pDecOut->hImg.width;
+		pMMVideoBuf->height[0] = pDecOut->hImg.height;
+		pMMVideoBuf->stride_width[0] = GST_ROUND_UP_32(pDecOut->hImg.stride[0]);
+		pMMVideoBuf->stride_width[1] = GST_ROUND_UP_16(pMMVideoBuf->stride_width[0]);
+		pMMVideoBuf->stride_height[0] = GST_ROUND_UP_16(pDecOut->hImg.height);
+		pMMVideoBuf->stride_height[1] = GST_ROUND_UP_16(pDecOut->hImg.height);
 		pMMVideoBuf->size[0] = pDecOut->hImg.size[0];
 		pMMVideoBuf->data[0] = pDecOut->hImg.pBuffer[0];
 		pMMVideoBuf->handle_num = 1;
