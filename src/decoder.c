@@ -3,6 +3,7 @@
 #endif
 
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <linux/videodev2.h>
 
@@ -10,7 +11,7 @@
 #include "gstnxvideodec.h"
 
 #define	MAX_OUTPUT_BUF	6
-#define NX_IMAGE_FORMAT	V4L2_PIX_FMT_YUV420M
+//#define NX_IMAGE_FORMAT	V4L2_PIX_FMT_YUV420M
 
 static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
@@ -242,6 +243,15 @@ NX_VIDEO_DEC_STRUCT *OpenVideoDec()
 	}
 
 	memset (pDecHandle, 0 ,sizeof(NX_VIDEO_DEC_STRUCT));
+
+	if( IsCpuNXP322X() )
+	{
+		pDecHandle->bIsNX322x =	TRUE;
+	}
+	else
+	{
+		pDecHandle->bIsNX322x =	FALSE;
+	}
 
 	FUNC_OUT();
 
@@ -1295,6 +1305,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.height  = pHDec->height;
 		seqIn.seqBuf = pSeqInfo;
 		seqIn.seqSize = seqInfoSize;
+		gint nxImageFormat = V4L2_PIX_FMT_YUV420;
 
 		if ( 0 != (ret = NX_V4l2DecParseVideoCfg( pHDec->hCodec, &seqIn, &seqOut )) )
 		{
@@ -1306,8 +1317,12 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.height = seqOut.height;
 		pHDec->bufferCountActual = seqOut.minBuffers + MAX_OUTPUT_BUF;
 		seqIn.numBuffers = pHDec->bufferCountActual;
-		seqIn.imgPlaneNum = NX_V4l2GetPlaneNum(NX_IMAGE_FORMAT);
-		seqIn.imgFormat = NX_IMAGE_FORMAT;
+		if( pHDec->bIsNX322x )
+		{
+			nxImageFormat =	V4L2_PIX_FMT_NV12;
+		}
+		seqIn.imgPlaneNum = NX_V4l2GetPlaneNum(nxImageFormat);
+		seqIn.imgFormat = nxImageFormat;
 
 		ret = NX_V4l2DecInit( pHDec->hCodec, &seqIn );
 
@@ -1582,6 +1597,48 @@ static gint PopVideoTimeStamp(NX_VIDEO_DEC_STRUCT *hDec, gint64 *pTimestamp, gui
 	}
 }
 ///////////////////////////////////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////////
+gint IsCpuNXP322X()
+{
+    FILE *pFileCpuInfo = NULL;
+    char *pCpuInfoBuf = NULL;
+    int32_t cpuInfoLen = 0;
+    int32_t findStream = 0;
+    char *pFindStream = NULL;
+
+    pFileCpuInfo = fopen( "/proc/cpuinfo", "rb" );
+    if(pFileCpuInfo == NULL)
+    {
+        GST_ERROR("Error File Open!\n");
+        return findStream;
+    }
+    pCpuInfoBuf = (char *)malloc(4096);
+    if(pCpuInfoBuf == NULL)
+    {
+        GST_ERROR("Error malloc!\n");
+        if(pFileCpuInfo)
+            fclose(pFileCpuInfo);
+        return findStream;
+    }
+
+    cpuInfoLen = fread(pCpuInfoBuf, sizeof(char), 4096, pFileCpuInfo);
+    pFindStream = strstr(pCpuInfoBuf, "nxp322x");
+    if(pFindStream)
+    {
+    	GST_ERROR("cpuInfo length(%d).\n", cpuInfoLen);
+        findStream = 1;  //nxp322x
+    }
+
+    if(pFileCpuInfo)
+        fclose(pFileCpuInfo);
+
+    if(pCpuInfoBuf)
+        free(pCpuInfoBuf);
+
+    return findStream;
+}
 
 //
 //	Semaphore functions for output buffer.
