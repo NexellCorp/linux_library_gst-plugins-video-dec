@@ -112,6 +112,7 @@ struct _NX_VIDEO_DEC_STRUCT
 	NX_VDEC_SEMAPHORE *pSem;
 
 	gboolean	bIsNX322x;
+	gint 		imageFormat;
 
 	gint (*pVideoDecodeFrame)( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 };

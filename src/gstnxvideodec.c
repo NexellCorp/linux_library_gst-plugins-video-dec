@@ -90,7 +90,7 @@ static GstFlowReturn gst_nxvideodec_handle_frame (GstVideoDecoder * decoder,
 		GstVideoCodecFrame * frame);
 static void nxvideodec_base_init (gpointer gclass);
 static void nxvideodec_buffer_finalize(gpointer pData);
-static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut);
+static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut, gint imageFormat);
 
 #if SUPPORT_NO_MEMORY_COPY
 static void nxvideodec_get_offset_stride(gint width, gint height, guint8 *pSrc, gsize *pOffset, gint *pStride );
@@ -118,7 +118,7 @@ enum
 };
 
 #ifndef ALIGN
-#define  ALIGN(X,N) ( (X+N-1) & (~(N-1)) )
+#define  ALIGN(X,N) ( ((X) + (N - 1)) & (~((N) - 1)) )
 #endif
 
 struct video_meta_mmap_buffer
@@ -737,7 +737,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		goto HANDLE_ERROR;
 	}
 
-	pMemMMVideoData = nxvideodec_mmvideobuf_copy(&decOut);
+	pMemMMVideoData = nxvideodec_mmvideobuf_copy(&decOut, pNxVideoDec->pNxVideoDecHandle->imageFormat);
 	if (!pMemMMVideoData)
 	{
 		GST_ERROR("failed to get zero copy data");
@@ -842,7 +842,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 			goto HANDLE_ERROR;
 		}
 
-		pMemMMVideoData = nxvideodec_mmvideobuf_copy(&decOut);
+		pMemMMVideoData = nxvideodec_mmvideobuf_copy(&decOut, pNxVideoDec->pNxVideoDecHandle->imageFormat);
 		if (!pMemMMVideoData)
 		{
 			GST_ERROR("failed to get zero copy data");
@@ -1008,7 +1008,7 @@ static void nxvideodec_buffer_finalize(gpointer pData)
 	}
 }
 
-static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut)
+static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut, gint imageFormat)
 {
 	GstMemory *pMeta = NULL;
 	MMVideoBuffer *pMMVideoBuf = NULL;
@@ -1041,7 +1041,7 @@ static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut)
 		pMMVideoBuf->handle.gem[0] = pDecOut->hImg.flink[0];
 		pMMVideoBuf->buffer_index = pDecOut->dispIdx;
 	}
-	else if( 2 == pDecOut->hImg.planes)
+	else if( 2 == pDecOut->hImg.planes)  //NV12
 	{
 		pMMVideoBuf->type = MM_VIDEO_BUFFER_TYPE_GEM;
 		pMMVideoBuf->format = MM_PIXEL_FORMAT_NV12;
@@ -1065,16 +1065,29 @@ static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut)
 		pMMVideoBuf->plane_num = 3;
 		pMMVideoBuf->width[0] = pDecOut->hImg.width;
 		pMMVideoBuf->height[0] = pDecOut->hImg.height;
-		pMMVideoBuf->stride_width[0] = pDecOut->hImg.stride[0];
-		pMMVideoBuf->stride_width[1] = pDecOut->hImg.stride[1];
-		pMMVideoBuf->stride_width[2] = pDecOut->hImg.stride[2];
 		pMMVideoBuf->size[0] = pDecOut->hImg.size[0];
 		pMMVideoBuf->size[1] = pDecOut->hImg.size[1];
 		pMMVideoBuf->size[2] = pDecOut->hImg.size[2];
 		pMMVideoBuf->data[0] = pDecOut->hImg.pBuffer[0];
 		pMMVideoBuf->data[1] = pDecOut->hImg.pBuffer[1];
 		pMMVideoBuf->data[2] = pDecOut->hImg.pBuffer[2];
-		pMMVideoBuf->handle_num = 3;
+		if(V4L2_PIX_FMT_YUV420 == imageFormat)
+		{
+			pMMVideoBuf->stride_width[0] = ALIGN(pDecOut->hImg.stride[0],32);
+			pMMVideoBuf->stride_width[1] = ALIGN(pMMVideoBuf->stride_width[0]>>1,16);
+			pMMVideoBuf->stride_width[2] = pMMVideoBuf->stride_width[1];
+			pMMVideoBuf->stride_height[0] = ALIGN(pDecOut->hImg.height,16);
+			pMMVideoBuf->stride_height[1] = ALIGN(pDecOut->hImg.height>>1,16);
+			pMMVideoBuf->stride_height[2] = pMMVideoBuf->stride_height[1];
+			pMMVideoBuf->handle_num = 1;
+		}
+		else
+		{
+			pMMVideoBuf->stride_width[0] = pDecOut->hImg.stride[0];
+			pMMVideoBuf->stride_width[1] = pDecOut->hImg.stride[1];
+			pMMVideoBuf->stride_width[2] = pDecOut->hImg.stride[2];
+			pMMVideoBuf->handle_num = 3;
+		}
 		pMMVideoBuf->handle.gem[0] = pDecOut->hImg.flink[0];
 		pMMVideoBuf->handle.gem[1] = pDecOut->hImg.flink[1];
 		pMMVideoBuf->handle.gem[2] = pDecOut->hImg.flink[2];

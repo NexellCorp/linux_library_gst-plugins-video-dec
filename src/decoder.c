@@ -1409,7 +1409,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.height  = pHDec->height;
 		seqIn.seqBuf = pSeqInfo;
 		seqIn.seqSize = seqInfoSize;
-		gint nxImageFormat = V4L2_PIX_FMT_YUV420M;
+		gint nxImageFormat = V4L2_PIX_FMT_YUV420;
 
 		if ( 0 != (ret = NX_V4l2DecParseVideoCfg( pHDec->hCodec, &seqIn, &seqOut )) )
 		{
@@ -1439,6 +1439,8 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		pHDec->pSem = VDecSemCreate( MAX_OUTPUT_BUF );
 		g_print("<<<<<<<<<< InitializeCodaVpu(Min=%d, %dx%d) (ret = %d) >>>>>>>>>\n",
 			pHDec->minRequiredFrameBuffer, seqOut.width, seqOut.height, ret );
+
+		pHDec->imageFormat = nxImageFormat;
 	}
 
 	FUNC_OUT();
