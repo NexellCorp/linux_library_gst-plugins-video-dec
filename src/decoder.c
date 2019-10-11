@@ -176,8 +176,16 @@ gint FindCodecInfo( GstVideoCodecState *pState, NX_VIDEO_DEC_STRUCT *pDecHandle 
 		GST_ERROR("out of profile or not supported video codec.(mime_type=%s)\n", pMime);
 	}
 
-	if( pDecHandle->width > NX_MAX_WIDTH || pDecHandle->height > NX_MAX_HEIGHT )
-		goto error_outofrange;
+	if( codecType == V4L2_PIX_FMT_H264 )
+	{
+		if( pDecHandle->width > NX_MAX_WIDTH && pDecHandle->height > NX_MAX_HEIGHT )
+			goto error_outofrange;
+	}
+	else
+	{
+		if( pDecHandle->width > NX_MAX_WIDTH || pDecHandle->height > NX_MAX_HEIGHT )
+			goto error_outofrange;
+	}
 
 	FUNC_OUT();
 

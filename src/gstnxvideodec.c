@@ -187,8 +187,8 @@ nxvideodec_base_init (gpointer gclass)
 		pCapslist,
 		gst_structure_new(
 			"video/x-h264",
-			"width", GST_TYPE_INT_RANGE, 64, NX_MAX_WIDTH,
-			"height", GST_TYPE_INT_RANGE, 64, NX_MAX_HEIGHT,
+//			"width", GST_TYPE_INT_RANGE, 64, NX_MAX_WIDTH,
+//			"height", GST_TYPE_INT_RANGE, 64, NX_MAX_HEIGHT,
 			NULL) );
 
 	//	XVID
@@ -306,6 +306,9 @@ gst_nxvideodec_init (GstNxVideoDec *pNxVideoDec)
 	pNxVideoDec->bufferType = BUFFER_TYPE_GEM;
 #endif
 	pthread_mutex_init(&pNxVideoDec->mutex, NULL);
+
+	GST_PAD_SET_ACCEPT_TEMPLATE (GST_VIDEO_DECODER_SINK_PAD (pNxVideoDec));
+	gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST(pNxVideoDec), TRUE);
 
 	FUNC_OUT();
 }
