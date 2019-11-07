@@ -94,6 +94,13 @@ struct _GstNxVideoDec
 	GstVideoCodecState *pInputState;
 	gint	isState;
 	pthread_mutex_t		mutex;
+
+	gint 	negoWidth;
+	gint 	negoHeight;
+	gint 	bIsCodecData;
+	gint 	bIsInitVideoDec;
+	gint 	bIsNegotiate;
+	
 };
 
 struct _GstNxVideoDecClass
