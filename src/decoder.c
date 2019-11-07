@@ -1448,6 +1448,15 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		g_print("<<<<<<<<<< InitializeCodaVpu(Min=%d, %dx%d) (ret = %d) >>>>>>>>>\n",
 			pHDec->minRequiredFrameBuffer, seqOut.width, seqOut.height, ret );
 
+		if( (pHDec->width == 0) || (pHDec->width != seqOut.dispInfo.dispRight) )
+		{
+			pHDec->width = seqOut.dispInfo.dispRight;
+		}
+		if( (pHDec->height == 0) || (pHDec->width != seqOut.dispInfo.dispBottom) )
+		{
+			pHDec->height = seqOut.dispInfo.dispBottom;
+		}
+
 		pHDec->imageFormat = nxImageFormat;
 	}
 

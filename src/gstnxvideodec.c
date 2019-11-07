@@ -92,6 +92,8 @@ static void nxvideodec_base_init (gpointer gclass);
 static void nxvideodec_buffer_finalize(gpointer pData);
 static GstMemory *nxvideodec_mmvideobuf_copy(NX_V4L2DEC_OUT *pDecOut, gint imageFormat);
 
+static GstFlowReturn gst_nxvideodec_drain(GstVideoDecoder * decoder);
+
 #if SUPPORT_NO_MEMORY_COPY
 static void nxvideodec_get_offset_stride(gint width, gint height, guint8 *pSrc, gsize *pOffset, gint *pStride );
 enum
@@ -278,6 +280,7 @@ gst_nxvideodec_class_init (GstNxVideoDecClass * pKlass)
 	pVideoDecoderClass->set_format = GST_DEBUG_FUNCPTR (gst_nxvideodec_set_format);
 	pVideoDecoderClass->flush = GST_DEBUG_FUNCPTR (gst_nxvideodec_flush);
 	pVideoDecoderClass->handle_frame = GST_DEBUG_FUNCPTR (gst_nxvideodec_handle_frame);
+	pVideoDecoderClass->drain = GST_DEBUG_FUNCPTR (gst_nxvideodec_drain);
 
 #if SUPPORT_NO_MEMORY_COPY
 #else
@@ -426,6 +429,11 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 	return TRUE;
 }
 
+static GstFlowReturn gst_nxvideodec_drain(GstVideoDecoder * decoder)
+{
+	return GST_FLOW_OK;
+}
+
 static gboolean
 gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState)
 {
@@ -530,46 +538,59 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 		}
 	}
 
-	if(pDecHandle->bIsNX322x)
+	if(pCodecData)
 	{
-		videoFormat = GST_VIDEO_FORMAT_NV12;
+		pNxVideoDec->bIsCodecData = TRUE;
+		if(pDecHandle->bIsNX322x)
+		{
+			videoFormat = GST_VIDEO_FORMAT_NV12;
+		}
+		else
+		{
+			videoFormat = GST_VIDEO_FORMAT_I420;
+		}
+
+		pOutputState =	gst_video_decoder_set_output_state (pDecoder, videoFormat,
+									pDecHandle->width, pDecHandle->height, pNxVideoDec->pInputState);
+
+
+		pOutputState->caps = gst_caps_new_simple ("video/x-raw",
+				"format", G_TYPE_STRING, gst_video_format_to_string (videoFormat),
+				"width", G_TYPE_INT, pDecHandle->width,
+				"height", G_TYPE_INT, pDecHandle->height,
+				"framerate", GST_TYPE_FRACTION, pDecHandle->fpsNum, pDecHandle->fpsDen, NULL);
+
+		gst_video_codec_state_unref( pOutputState );
+
+#if SUPPORT_NO_MEMORY_COPY
+		GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
+#else
+		if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
+		{
+			GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
+		}
+#endif
+
+		ret = gst_video_decoder_negotiate( pDecoder );
+
+		if( FALSE == ret)
+		{
+			GST_ERROR( "Fail Negotiate !\n");
+			return ret;
+		}
+
+		if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle) )
+		{
+			return FALSE;
+		}
+		pNxVideoDec->negoWidth = pDecHandle->width;
+		pNxVideoDec->negoHeight = pDecHandle->height;
+		pNxVideoDec->bIsInitVideoDec = TRUE;
+		pNxVideoDec->bIsNegotiate = TRUE;
 	}
 	else
 	{
-		videoFormat = GST_VIDEO_FORMAT_I420;
-	}
-
-	pOutputState =	gst_video_decoder_set_output_state (pDecoder, videoFormat,
-								pDecHandle->width, pDecHandle->height, pNxVideoDec->pInputState);
-
-	pOutputState->caps = gst_caps_new_simple ("video/x-raw",
-			"format", G_TYPE_STRING, gst_video_format_to_string (videoFormat),
-			"width", G_TYPE_INT, pDecHandle->width,
-			"height", G_TYPE_INT, pDecHandle->height,
-			"framerate", GST_TYPE_FRACTION, pDecHandle->fpsNum, pDecHandle->fpsDen, NULL);
-
-	gst_video_codec_state_unref( pOutputState );
-
-#if SUPPORT_NO_MEMORY_COPY
-	GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
-#else
-	if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
-	{
-		GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
-	}
-#endif
-
-	ret = gst_video_decoder_negotiate( pDecoder );
-
-	if( FALSE == ret)
-	{
-		GST_ERROR( "Fail Negotiate !\n");
-		return ret;
-	}
-
-	if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle) )
-	{
-		return FALSE;
+		return TRUE;
 	}
 
 	FUNC_OUT();
@@ -801,8 +822,19 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	GstBuffer *pGstbuf = NULL;
 	struct video_meta_mmap_buffer *pMeta = NULL;
 	GstMemory *pMemMMVideoData = NULL;
+	NX_VIDEO_DEC_STRUCT *pDecHandle = NULL;
+	pDecHandle = pNxVideoDec->pNxVideoDecHandle;
 
 	FUNC_IN();
+
+	if( (pNxVideoDec->bIsCodecData == FALSE) && (pNxVideoDec->bIsInitVideoDec == FALSE) )
+	{
+		pNxVideoDec->bIsInitVideoDec = TRUE;
+		if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle) )
+		{
+			return GST_FLOW_ERROR;
+		}
+	}
 
 	if (!gst_buffer_map (pFrame->input_buffer, &mapInfo, GST_MAP_READ))
 	{
@@ -833,7 +865,56 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		return GST_FLOW_OK;
 	}
 
-	GST_DEBUG_OBJECT( pNxVideoDec, " decOut.dispIdx: %d\n",decOut.dispIdx );
+	if( ((pNxVideoDec->bIsCodecData == FALSE) && (pNxVideoDec->bIsNegotiate == FALSE)) ||
+		((pNxVideoDec->negoWidth != pDecHandle->width) || (pNxVideoDec->negoHeight != pDecHandle->height))
+		 )
+	{
+		
+		pNxVideoDec->bIsNegotiate = TRUE;
+		GstVideoCodecState *pOutputState = NULL;
+
+		gint videoFormat = GST_VIDEO_FORMAT_I420;
+
+		if(pDecHandle->bIsNX322x)
+		{
+			videoFormat = GST_VIDEO_FORMAT_NV12;
+		}
+		else
+		{
+			videoFormat = GST_VIDEO_FORMAT_I420;
+		}
+
+		pOutputState =	gst_video_decoder_set_output_state (pDecoder, videoFormat,
+									pDecHandle->width, pDecHandle->height, pNxVideoDec->pInputState);
+
+		pOutputState->caps = gst_caps_new_simple ("video/x-raw",
+				"format", G_TYPE_STRING, gst_video_format_to_string (videoFormat),
+				"width", G_TYPE_INT, pDecHandle->width,
+				"height", G_TYPE_INT, pDecHandle->height,
+				"framerate", GST_TYPE_FRACTION, pDecHandle->fpsNum, pDecHandle->fpsDen, NULL);
+
+		gst_video_codec_state_unref( pOutputState );
+
+#if SUPPORT_NO_MEMORY_COPY
+		GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
+#else
+		if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
+		{
+			GST_DEBUG_OBJECT( pNxVideoDec, ">>>>> Accelerable.");
+		}
+#endif
+
+		ret = gst_video_decoder_negotiate( pDecoder );
+
+		if( FALSE == ret)
+		{
+			GST_ERROR( "Fail Negotiate !\n");
+			return GST_FLOW_ERROR;
+		}
+
+		pNxVideoDec->negoWidth = pDecHandle->width;
+		pNxVideoDec->negoHeight = pDecHandle->height;
+	}
 
 	if( BUFFER_TYPE_GEM == pNxVideoDec->bufferType )
 	{
