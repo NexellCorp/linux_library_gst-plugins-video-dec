@@ -304,6 +304,10 @@ gst_nxvideodec_init (GstNxVideoDec *pNxVideoDec)
 	pNxVideoDec->pNxVideoDecHandle = NULL;
 	pNxVideoDec->pInputState = NULL;
 	pNxVideoDec->isState = STOP;
+	pNxVideoDec->bIsCodecData = false;
+	pNxVideoDec->bIsInitVideoDec = false;
+	pNxVideoDec->bIsNegotiate = false;
+
 #if SUPPORT_NO_MEMORY_COPY
 #else
 	pNxVideoDec->bufferType = BUFFER_TYPE_GEM;
@@ -422,6 +426,10 @@ gst_nxvideodec_stop (GstVideoDecoder *pDecoder)
 	}
 
 	CloseVideoDec(pNxVideoDec->pNxVideoDecHandle);
+	pNxVideoDec->pNxVideoDecHandle = NULL;
+	pNxVideoDec->bIsCodecData = false;
+	pNxVideoDec->bIsInitVideoDec = false;
+	pNxVideoDec->bIsNegotiate = false;
 
 	pthread_mutex_destroy( &pNxVideoDec->mutex );
 

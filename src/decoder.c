@@ -1785,6 +1785,7 @@ void VDecSemDestroy( NX_VDEC_SEMAPHORE *pSem )
 		pthread_mutex_destroy( &pSem->mutex );
 		pthread_cond_destroy( &pSem->cond );
 		g_free( pSem );
+		pSem = NULL;
 	}
 	FUNC_OUT();
 }
