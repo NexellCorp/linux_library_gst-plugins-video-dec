@@ -686,7 +686,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if (!gst_buffer_map (pFrame->input_buffer, &mapInfo, GST_MAP_READ))
 	{
 		GST_ERROR("Cannot map input buffer!");
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		return GST_FLOW_ERROR;
 	}
 
@@ -717,7 +717,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if (!pMeta)
 	{
 		GST_ERROR_OBJECT(pNxVideoDec, "failed to malloc for meta");
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		return GST_FLOW_ERROR;
 	}
 
@@ -739,7 +739,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if (!pGstmem)
 	{
 		GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_memory_new_wrapped for mmap buffer");
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		goto HANDLE_ERROR;
 	}
 
@@ -747,7 +747,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if (!pGstbuf)
 	{
 		GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_buffer_new");
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		goto HANDLE_ERROR;
 	}
 	gst_buffer_append_memory(pGstbuf, pGstmem);
@@ -765,7 +765,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	{
 		GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_buffer_add_video_meta_full");
 		gst_video_codec_state_unref (pState);
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		goto HANDLE_ERROR;
 	}
 
@@ -774,7 +774,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	{
 		GST_ERROR("failed to get zero copy data");
 		gst_video_codec_state_unref (pState);
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		goto HANDLE_ERROR;
 	}
 	else
@@ -847,7 +847,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if (!gst_buffer_map (pFrame->input_buffer, &mapInfo, GST_MAP_READ))
 	{
 		GST_ERROR("Cannot map input buffer!");
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		return GST_FLOW_ERROR;
 	}
 
@@ -863,13 +863,13 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	}
 	else if( DEC_INIT_ERR == ret )
 	{
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		return GST_FLOW_ERROR;
 	}
 
 	if( decOut.dispIdx < 0 )
 	{
-		gst_video_codec_frame_unref (pFrame);
+		gst_video_decoder_release_frame (pDecoder, pFrame);
 		return GST_FLOW_OK;
 	}
 
@@ -930,7 +930,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		if (!pGstbuf)
 		{
 			GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_buffer_new");
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			goto HANDLE_ERROR;
 		}
 
@@ -938,7 +938,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		if (!pMemMMVideoData)
 		{
 			GST_ERROR("failed to get zero copy data");
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			goto HANDLE_ERROR;
 		}
 		gst_buffer_append_memory(pGstbuf, pMemMMVideoData);
@@ -947,7 +947,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		if (!pMeta)
 		{
 			GST_ERROR_OBJECT(pNxVideoDec, "failed to malloc for meta");
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			return GST_FLOW_ERROR;
 		}
 		pMeta->v4l2BufferIdx = decOut.dispIdx;
@@ -962,7 +962,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		if (!pGstmem)
 		{
 			GST_ERROR_OBJECT(pNxVideoDec, "failed to gst_memory_new_wrapped for mmap buffer");
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			goto HANDLE_ERROR;
 		}
 		gst_buffer_append_memory(pGstbuf, pGstmem);
@@ -1005,7 +1005,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		if (flowRet != GST_FLOW_OK)
 		{
 			gst_video_codec_state_unref (pState);
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			return flowRet;
 		}
 
@@ -1013,7 +1013,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		{
 			GST_ERROR ("Cannot video frame map!\n");
 			gst_video_codec_state_unref (pState);
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			return GST_FLOW_ERROR;
 		}
 
@@ -1036,7 +1036,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 
 		if(ret != 0)
 		{
-			gst_video_codec_frame_unref (pFrame);
+			gst_video_decoder_release_frame (pDecoder, pFrame);
 			return GST_FLOW_ERROR;
 		}
 	}
@@ -1091,7 +1091,7 @@ static void nxvideodec_buffer_finalize(gpointer pData)
 	}
 	else
 	{
-		GST_ERROR("Error: hCodec is null !");
+		GST_WARNING("Warning: hCodec is null !");
 	}
 
 	if( pMeta )

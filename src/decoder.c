@@ -290,6 +290,9 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	pDecHandle->inFlushFrameCount = 0;
 	pDecHandle->bIsFlush = FALSE;
 
+	pDecHandle->dtsTimestamp = -1;
+	pDecHandle->ptsTimestamp = -1;
+
 	FUNC_OUT();
 
 	return ret;
@@ -348,6 +351,7 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 			PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
 		}
 		timestamp = GST_BUFFER_PTS(pGstBuf);
+		pHDec->ptsTimestamp = timestamp;
 	}
 	else if ( GST_BUFFER_DTS_IS_VALID(pGstBuf) )
 	{
@@ -356,6 +360,7 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 			PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
 		}
 		timestamp = GST_BUFFER_DTS(pGstBuf);
+		pHDec->dtsTimestamp = timestamp;
 	}
 	else //invalid timestamp
 	{
@@ -532,14 +537,9 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 			}
 			else
 			{
-				pDecBuf = pHDec->pTmpStrmBuf + pHDec->pos;
-				memcpy( pDecBuf, pInBuf, inSize );
-				pHDec->size = pHDec->size + inSize;
-				pHDec->pos = pHDec->pos + inSize;
-
-				decBufSize = pHDec->size;
-				pDecBuf = pHDec->pTmpStrmBuf;
-
+				pDecOut->dispIdx = -1;
+				ret = 0;
+				goto AVCDecodeFrame_Exit;
 			}
 		}
 		else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
@@ -556,6 +556,18 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 
 		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
 		{
+			if(pHDec->ptsTimestamp != -1)
+			{
+				timestamp = pHDec->ptsTimestamp;
+			}
+			else if(pHDec->dtsTimestamp != -1)
+			{
+				timestamp = pHDec->dtsTimestamp;
+			}
+
+			pHDec->ptsTimestamp = -1;
+			pHDec->dtsTimestamp = -1;
+
 			PushVideoTimeStamp(pHDec, timestamp, GST_BUFFER_FLAGS(pGstBuf) );
 		}
 
