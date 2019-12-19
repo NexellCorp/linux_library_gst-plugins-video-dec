@@ -114,6 +114,9 @@ struct _NX_VIDEO_DEC_STRUCT
 	gboolean	bIsNX322x;
 	gint 		imageFormat;
 
+	gint64		dtsTimestamp;
+	gint64		ptsTimestamp;
+
 	gint (*pVideoDecodeFrame)( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 };
 //
