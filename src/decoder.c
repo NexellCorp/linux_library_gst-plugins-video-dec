@@ -3,6 +3,7 @@
 #endif
 
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <linux/videodev2.h>
 
@@ -10,7 +11,7 @@
 #include "gstnxvideodec.h"
 
 #define	MAX_OUTPUT_BUF	6
-#define NX_IMAGE_FORMAT	V4L2_PIX_FMT_YUV420M
+//#define NX_IMAGE_FORMAT	V4L2_PIX_FMT_YUV420M
 
 static gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 static gint Mpeg2DecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
@@ -175,8 +176,16 @@ gint FindCodecInfo( GstVideoCodecState *pState, NX_VIDEO_DEC_STRUCT *pDecHandle 
 		GST_ERROR("out of profile or not supported video codec.(mime_type=%s)\n", pMime);
 	}
 
-	if( pDecHandle->width > NX_MAX_WIDTH || pDecHandle->height > NX_MAX_HEIGHT )
-		goto error_outofrange;
+	if( codecType == V4L2_PIX_FMT_H264 )
+	{
+		if( pDecHandle->width > NX_MAX_WIDTH && pDecHandle->height > NX_MAX_HEIGHT )
+			goto error_outofrange;
+	}
+	else
+	{
+		if( pDecHandle->width > NX_MAX_WIDTH || pDecHandle->height > NX_MAX_HEIGHT )
+			goto error_outofrange;
+	}
 
 	FUNC_OUT();
 
@@ -243,6 +252,15 @@ NX_VIDEO_DEC_STRUCT *OpenVideoDec()
 
 	memset (pDecHandle, 0 ,sizeof(NX_VIDEO_DEC_STRUCT));
 
+	if( IsCpuNXP322X() )
+	{
+		pDecHandle->bIsNX322x =	TRUE;
+	}
+	else
+	{
+		pDecHandle->bIsNX322x =	FALSE;
+	}
+
 	FUNC_OUT();
 
 	return pDecHandle;
@@ -271,6 +289,9 @@ gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle )
 	pDecHandle->bNeedIframe = TRUE;
 	pDecHandle->inFlushFrameCount = 0;
 	pDecHandle->bIsFlush = FALSE;
+
+	pDecHandle->dtsTimestamp = -1;
+	pDecHandle->ptsTimestamp = -1;
 
 	FUNC_OUT();
 
@@ -325,20 +346,31 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 	// Push Input Time Stamp
 	if ( GST_BUFFER_PTS_IS_VALID(pGstBuf) )
 	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
+		if( pHDec->h264Alignment != H264_PARSE_ALIGN_NAL )
+		{
+			PushVideoTimeStamp(pHDec, GST_BUFFER_PTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
+		}
 		timestamp = GST_BUFFER_PTS(pGstBuf);
+		pHDec->ptsTimestamp = timestamp;
 	}
 	else if ( GST_BUFFER_DTS_IS_VALID(pGstBuf) )
 	{
-		PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
+		if( pHDec->h264Alignment != H264_PARSE_ALIGN_NAL )
+		{
+			PushVideoTimeStamp(pHDec, GST_BUFFER_DTS(pGstBuf), GST_BUFFER_FLAGS(pGstBuf) );
+		}
 		timestamp = GST_BUFFER_DTS(pGstBuf);
+		pHDec->dtsTimestamp = timestamp;
 	}
 	else //invalid timestamp
 	{
 		//
 		//add hcjun 2018-01-24
 		//
-		PushVideoTimeStamp(pHDec, INVALID_TIMESTAMP, GST_BUFFER_FLAGS(pGstBuf) );
+		if( pHDec->h264Alignment != H264_PARSE_ALIGN_NAL )
+		{
+			PushVideoTimeStamp(pHDec, INVALID_TIMESTAMP, GST_BUFFER_FLAGS(pGstBuf) );
+		}
 		timestamp = GST_CLOCK_TIME_NONE;
 	}
 
@@ -360,25 +392,63 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 
 			if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
 			{
-				gint size = 0;
-				if( 0 == GST_BUFFER_DURATION(pGstBuf) )
+				if( (pInBuf[0] == 0x00) && (pInBuf[1] == 0x00) && (pInBuf[2] == 0x00) && (pInBuf[3] == 0x01) &&
+					(pInBuf[4] == 0x09) ) //NAL Unit Start
 				{
-					size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
-					pHDec->size = pHDec->size + size;
-					pHDec->pos = pHDec->pos + size;
+					pDecBuf = pHDec->pTmpStrmBuf;
+
+					memcpy( pDecBuf, pInBuf, inSize );
+
+					pHDec->size = pHDec->size + inSize;
+					pHDec->pos = pHDec->pos + inSize;
 
 					pDecOut->dispIdx = -1;
-					ret = DEC_ERR;
+					ret = 0;
 					goto AVCDecodeFrame_Exit;
+				}
+				else if( (pInBuf[0] == 0x00) && (pInBuf[1] == 0x00) && (pInBuf[2] == 0x00) && (pInBuf[3] == 0x01) &&
+					  (pInBuf[4] == 0x67) ) //SPS
+				{
+					pDecBuf = pHDec->pTmpStrmBuf + pHDec->pos;
+
+					memcpy( pDecBuf, pInBuf, inSize );
+					pHDec->size = pHDec->size + inSize;
+					pHDec->pos = pHDec->pos + inSize;
+
+					pDecOut->dispIdx = -1;
+					ret = 0;
+					goto AVCDecodeFrame_Exit;
+				}
+				else if( (pInBuf[0] == 0x00) && (pInBuf[1] == 0x00) && (pInBuf[2] == 0x00) && (pInBuf[3] == 0x01) &&
+					  (pInBuf[4] == 0x68) ) //PPS
+				{
+					pDecBuf = pHDec->pTmpStrmBuf + pHDec->pos;
+
+					memcpy( pDecBuf, pInBuf, inSize );
+					pHDec->size = pHDec->size + inSize;
+					pHDec->pos = pHDec->pos + inSize;
+
+					pDecOut->dispIdx = -1;
+					ret = 0;
+					goto AVCDecodeFrame_Exit;
+				}
+				else if( (pInBuf[0] == 0x00) && (pInBuf[1] == 0x00) && (pInBuf[2] == 0x01) )
+				{
+					pDecBuf = pHDec->pTmpStrmBuf + pHDec->pos;
+					memcpy( pDecBuf, pInBuf, inSize );
+					pHDec->size = pHDec->size + inSize;
+					pHDec->pos = pHDec->pos + inSize;
 				}
 				else
 				{
-					size = ParseAvcStream( pInBuf, inSize, 4, pDecBuf + pHDec->pos, &isKey );
-					pHDec->size = pHDec->size + size;
-					pHDec->pos = pHDec->pos + size;
-					seqSize = pHDec->pos;
-					pSeqData = pDecBuf;
+					pDecBuf = pHDec->pTmpStrmBuf + pHDec->pos;
+					memcpy( pDecBuf, pInBuf, inSize );
+					pHDec->size = pHDec->size + inSize;
+					pHDec->pos = pHDec->pos + inSize;
 				}
+
+				seqSize = pHDec->size;
+				pSeqData = pHDec->pTmpStrmBuf;
 			}
 			else
 			{
@@ -412,6 +482,11 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 			}
 		}
 
+		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+		{
+			PushVideoTimeStamp(pHDec, timestamp, GST_BUFFER_FLAGS(pGstBuf) );
+		}
+
 		// Initialize VPU
 		ret = InitializeCodaVpu(pHDec, pSeqData, seqSize);
 
@@ -427,13 +502,45 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 		pHDec->bInitialized = TRUE;
 		pDecOut->dispIdx = -1;
 		ret = 0;
+
+		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+		{
+			pHDec->size = 0;
+			pHDec->pos = 0;
+		}
 	}
 	else
 	{
 		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
 		{
-			pDecBuf = pHDec->pTmpStrmBuf;
-			decBufSize = ParseAvcStream( pInBuf, inSize, 4, pDecBuf, &isKey );
+			if( (pInBuf[0] == 0x00) && (pInBuf[1] == 0x00) && (pInBuf[2] == 0x00) && (pInBuf[3] == 0x01) &&
+					(pInBuf[4] == 0x09) ) //NAL Unit Start
+			{
+				pDecBuf = pHDec->pTmpStrmBuf;
+				memcpy( pDecBuf, pInBuf, inSize );
+				pHDec->size = pHDec->size + inSize;
+				pHDec->pos = pHDec->pos + inSize;
+
+				pDecOut->dispIdx = -1;
+				ret = 0;
+				goto AVCDecodeFrame_Exit;
+			}
+			else if( (pInBuf[0] == 0x00) && (pInBuf[1] == 0x00) && (pInBuf[2] == 0x01) )
+			{
+				pDecBuf = pHDec->pTmpStrmBuf + pHDec->pos;
+				memcpy( pDecBuf, pInBuf, inSize );
+				pHDec->size = pHDec->size + inSize;
+				pHDec->pos = pHDec->pos + inSize;
+
+				decBufSize = pHDec->size;
+				pDecBuf = pHDec->pTmpStrmBuf;
+			}
+			else
+			{
+				pDecOut->dispIdx = -1;
+				ret = 0;
+				goto AVCDecodeFrame_Exit;
+			}
 		}
 		else if( (h264Info) && (h264Info->eStreamType == NX_H264_STREAM_AVCC) )
 		{
@@ -445,6 +552,23 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 		{
 			pDecBuf = pInBuf;
 			decBufSize = inSize;
+		}
+
+		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+		{
+			if(pHDec->ptsTimestamp != -1)
+			{
+				timestamp = pHDec->ptsTimestamp;
+			}
+			else if(pHDec->dtsTimestamp != -1)
+			{
+				timestamp = pHDec->dtsTimestamp;
+			}
+
+			pHDec->ptsTimestamp = -1;
+			pHDec->dtsTimestamp = -1;
+
+			PushVideoTimeStamp(pHDec, timestamp, GST_BUFFER_FLAGS(pGstBuf) );
 		}
 
 		if( pHDec->bIsFlush )
@@ -490,6 +614,12 @@ gint AVCDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L
 			{
 				pHDec->bNeedIframe = FALSE;
 			}
+		}
+
+		if( pHDec->h264Alignment == H264_PARSE_ALIGN_NAL )
+		{
+			pHDec->size = 0;
+			pHDec->pos = 0;
 		}
 
 		if( (0 != ret ) || (0 > pDecOut->dispIdx) )
@@ -1170,52 +1300,57 @@ gint GetTimeStamp(NX_VIDEO_DEC_STRUCT *pDecHandle, gint64 *pTimestamp)
 	guint flag;
 
 	ret = PopVideoTimeStamp(pDecHandle, pTimestamp, &flag );
+	if(ret == -1)
+	{
+		*pTimestamp = -1;
+	}
 
 	return ret;
 }
 
 // Copy Image YV12 to General YV12
-gint CopyImageToBufferYV12( uint8_t *pSrcY, uint8_t *pSrcU, uint8_t *pSrcV, uint8_t *pDst, uint32_t strideY, uint32_t strideUV, uint32_t width, uint32_t height )
+gint CopyImageToBufferYV12( NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst )
 {
-	uint32_t i;
-	if( width == strideY )
+	int32_t iLumaWidth, iLumaHeight;
+	int32_t iChromaWidth, iChromaHeight;
+
+	if( NULL == pInMemory->pBuffer[0] )
 	{
-		memcpy( pDst, pSrcY, width*height );
-		pDst += width*height;
-	}
-	else
-	{
-		for( i=0 ; i<height ; i++ )
+		if( 0 > NX_MapVideoMemory( pInMemory ) )
 		{
-			memcpy( pDst, pSrcY, width );
-			pSrcY += strideY;
-			pDst += width;
+			GST_ERROR("Fail, CopyImageToBufferYV12():NX_MapVideoMemory().\n");
+			return -1;
 		}
 	}
 
-	width /= 2;
-	height /= 2;
-	if( width == strideUV )
+	iLumaWidth  = pInMemory->width;
+	iLumaHeight = pInMemory->height;
+	iChromaWidth  = pInMemory->width >> 1;
+	iChromaHeight = pInMemory->height >> 1;
+
+	// Copy Luma
 	{
-		memcpy( pDst, pSrcU, width*height );
-		pDst += width*height;
-		memcpy( pDst, pSrcV, width*height );
-	}
-	else
-	{
-		for( i=0 ; i<height ; i++ )
+		uint8_t *pSrcV = (uint8_t*)pInMemory->pBuffer[0];
+		for( int32_t h = 0; h < iLumaHeight; h++ )
 		{
-			memcpy( pDst, pSrcU, width );
-			pSrcY += strideY;
-			pDst += width;
-		}
-		for( i=0 ; i<height ; i++ )
-		{
-			memcpy( pDst, pSrcV, width );
-			pSrcY += strideY;
-			pDst += width;
+			memcpy( pDst, pSrcV, iLumaWidth );
+			pSrcV += pInMemory->stride[0];
+			pDst += iLumaWidth;
 		}
 	}
+
+	// Copy Chroma
+	for( int32_t i = 1; i < pInMemory->planes; i++ )
+	{
+		uint8_t *pSrcV = (uint8_t*)pInMemory->pBuffer[i];
+		for( int32_t h = 0; h < iChromaHeight; h++ )
+		{
+			memcpy( pDst, pSrcV, iChromaWidth );
+			pSrcV += pInMemory->stride[i];
+			pDst += iChromaWidth;
+		}
+	}
+
 	return 0;
 }
 
@@ -1294,6 +1429,7 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.height  = pHDec->height;
 		seqIn.seqBuf = pSeqInfo;
 		seqIn.seqSize = seqInfoSize;
+		gint nxImageFormat = V4L2_PIX_FMT_YUV420;
 
 		if ( 0 != (ret = NX_V4l2DecParseVideoCfg( pHDec->hCodec, &seqIn, &seqOut )) )
 		{
@@ -1305,8 +1441,12 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		seqIn.height = seqOut.height;
 		pHDec->bufferCountActual = seqOut.minBuffers + MAX_OUTPUT_BUF;
 		seqIn.numBuffers = pHDec->bufferCountActual;
-		seqIn.imgPlaneNum = NX_V4l2GetPlaneNum(NX_IMAGE_FORMAT);
-		seqIn.imgFormat = NX_IMAGE_FORMAT;
+		if( pHDec->bIsNX322x )
+		{
+			nxImageFormat =	V4L2_PIX_FMT_NV12;
+		}
+		seqIn.imgPlaneNum = NX_V4l2GetPlaneNum(nxImageFormat);
+		seqIn.imgFormat = nxImageFormat;
 
 		ret = NX_V4l2DecInit( pHDec->hCodec, &seqIn );
 
@@ -1319,6 +1459,17 @@ static gint InitializeCodaVpu(NX_VIDEO_DEC_STRUCT *pHDec, guint8 *pSeqInfo, gint
 		pHDec->pSem = VDecSemCreate( MAX_OUTPUT_BUF );
 		g_print("<<<<<<<<<< InitializeCodaVpu(Min=%d, %dx%d) (ret = %d) >>>>>>>>>\n",
 			pHDec->minRequiredFrameBuffer, seqOut.width, seqOut.height, ret );
+
+		if( (pHDec->width == 0) || (pHDec->width != seqOut.dispInfo.dispRight) )
+		{
+			pHDec->width = seqOut.dispInfo.dispRight;
+		}
+		if( (pHDec->height == 0) || (pHDec->width != seqOut.dispInfo.dispBottom) )
+		{
+			pHDec->height = seqOut.dispInfo.dispBottom;
+		}
+
+		pHDec->imageFormat = nxImageFormat;
 	}
 
 	FUNC_OUT();
@@ -1582,6 +1733,48 @@ static gint PopVideoTimeStamp(NX_VIDEO_DEC_STRUCT *hDec, gint64 *pTimestamp, gui
 }
 ///////////////////////////////////////////////////////////////////////////////
 
+
+///////////////////////////////////////////////////////////////////////////////
+gint IsCpuNXP322X()
+{
+    FILE *pFileCpuInfo = NULL;
+    char *pCpuInfoBuf = NULL;
+    int32_t cpuInfoLen = 0;
+    int32_t findStream = 0;
+    char *pFindStream = NULL;
+
+    pFileCpuInfo = fopen( "/proc/cpuinfo", "rb" );
+    if(pFileCpuInfo == NULL)
+    {
+        GST_ERROR("Error File Open!\n");
+        return findStream;
+    }
+    pCpuInfoBuf = (char *)malloc(4096);
+    if(pCpuInfoBuf == NULL)
+    {
+        GST_ERROR("Error malloc!\n");
+        if(pFileCpuInfo)
+            fclose(pFileCpuInfo);
+        return findStream;
+    }
+
+    cpuInfoLen = fread(pCpuInfoBuf, sizeof(char), 4096, pFileCpuInfo);
+    pFindStream = strstr(pCpuInfoBuf, "nxp322x");
+    if(pFindStream)
+    {
+    	GST_ERROR("cpuInfo length(%d).\n", cpuInfoLen);
+        findStream = 1;  //nxp322x
+    }
+
+    if(pFileCpuInfo)
+        fclose(pFileCpuInfo);
+
+    if(pCpuInfoBuf)
+        free(pCpuInfoBuf);
+
+    return findStream;
+}
+
 //
 //	Semaphore functions for output buffer.
 //
@@ -1604,6 +1797,7 @@ void VDecSemDestroy( NX_VDEC_SEMAPHORE *pSem )
 		pthread_mutex_destroy( &pSem->mutex );
 		pthread_cond_destroy( &pSem->cond );
 		g_free( pSem );
+		pSem = NULL;
 	}
 	FUNC_OUT();
 }
