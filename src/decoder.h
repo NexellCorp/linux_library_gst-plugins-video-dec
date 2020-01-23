@@ -111,6 +111,12 @@ struct _NX_VIDEO_DEC_STRUCT
 
 	NX_VDEC_SEMAPHORE *pSem;
 
+	gboolean	bIsNX322x;
+	gint 		imageFormat;
+
+	gint64		dtsTimestamp;
+	gint64		ptsTimestamp;
+
 	gint (*pVideoDecodeFrame)( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 };
 //
@@ -128,7 +134,9 @@ void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle );
 
 gint DisplayDone( NX_VIDEO_DEC_STRUCT *pDecHandle, gint v4l2BufferIdx );
 gint GetTimeStamp( NX_VIDEO_DEC_STRUCT *pDecHandle, gint64 *pTimestamp );
-gint CopyImageToBufferYV12( uint8_t *pSrcY, uint8_t *pSrcU, uint8_t *pSrcV, uint8_t *pDst, uint32_t strideY, uint32_t strideUV, uint32_t width, uint32_t height );
+gint CopyImageToBufferYV12( NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst );
+
+gint IsCpuNXP322X();
 
 //
 //	Semaphore functions for output buffer.
