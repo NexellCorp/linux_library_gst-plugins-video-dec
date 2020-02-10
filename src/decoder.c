@@ -1309,10 +1309,11 @@ gint GetTimeStamp(NX_VIDEO_DEC_STRUCT *pDecHandle, gint64 *pTimestamp)
 }
 
 // Copy Image YV12 to General YV12
-gint CopyImageToBufferYV12( NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst )
+gint CopyImageToBufferYV12( NX_VIDEO_DEC_STRUCT *pDecHandle, NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst )
 {
-	int32_t iLumaWidth, iLumaHeight;
-	int32_t iChromaWidth, iChromaHeight;
+	int32_t iWidth = 0, iHeight = 0;
+	int32_t iLumaWidth = 0, iLumaHeight = 0;
+	int32_t iChromaWidth = 0, iChromaHeight = 0;
 
 	if( NULL == pInMemory->pBuffer[0] )
 	{
@@ -1323,10 +1324,17 @@ gint CopyImageToBufferYV12( NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst )
 		}
 	}
 
-	iLumaWidth  = pInMemory->width;
-	iLumaHeight = pInMemory->height;
-	iChromaWidth  = pInMemory->width >> 1;
-	iChromaHeight = pInMemory->height >> 1;
+	iWidth = pInMemory->width;
+	iHeight = pInMemory->height;
+	//If the coded height is different, the display height information is used.
+	if(pInMemory->height != pDecHandle->height)
+	{
+		iHeight = pDecHandle->height;
+	}
+	iLumaWidth  = iWidth;
+	iLumaHeight = iHeight;
+	iChromaWidth  = iWidth >> 1;
+	iChromaHeight = iHeight>>1;
 
 	// Copy Luma
 	{
