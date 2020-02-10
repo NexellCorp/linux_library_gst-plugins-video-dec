@@ -134,7 +134,7 @@ void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle );
 
 gint DisplayDone( NX_VIDEO_DEC_STRUCT *pDecHandle, gint v4l2BufferIdx );
 gint GetTimeStamp( NX_VIDEO_DEC_STRUCT *pDecHandle, gint64 *pTimestamp );
-gint CopyImageToBufferYV12( NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst );
+gint CopyImageToBufferYV12( NX_VIDEO_DEC_STRUCT *pDecHandle, NX_VID_MEMORY_INFO *pInMemory, uint8_t *pDst );
 
 gint IsCpuNXP322X();
 
