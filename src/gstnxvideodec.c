@@ -1027,7 +1027,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		pImg = &decOut.hImg;
 		pDst = GST_VIDEO_FRAME_COMP_DATA (&videoFrame, 0);
 
-		ret = CopyImageToBufferYV12( pImg, pDst );
+		ret = CopyImageToBufferYV12( pNxVideoDec->pNxVideoDecHandle, pImg, pDst );
 
 		DisplayDone( pNxVideoDec->pNxVideoDecHandle, decOut.dispIdx );
 
