@@ -104,7 +104,8 @@ enum
 enum
 {
 	PROP_0,
-	PROP_TYPE	//0: 1:MM_VIDEO_BUFFER_TYPE_GEM
+	PROP_TYPE,	//0: 1:MM_VIDEO_BUFFER_TYPE_GEM
+	DISABLE_VIDEO_OUT_REORDER  //0:EnableOutReorder, 1:DisableOutReorder
 };
 enum
 {
@@ -288,6 +289,11 @@ gst_nxvideodec_class_init (GstNxVideoDecClass * pKlass)
 		pGobjectClass,
 		PROP_TYPE,
 		g_param_spec_int ("buffer-type", "buffer-type", "Buffer Type(0:NORMAL 1:MM_VIDEO_BUFFER_TYPE_GEM)", 0, 1, BUFFER_TYPE_GEM, G_PARAM_READWRITE));
+
+	g_object_class_install_property (
+		pGobjectClass,
+		DISABLE_VIDEO_OUT_REORDER,
+		g_param_spec_int ("disable-out-reorder", "Disable Video Out Reorder", "Disable Out Reorder(0:Enable-Out-Reorder 1:Disable-Out-Reorder)", 0, 1, 0, G_PARAM_READWRITE));	
 #endif
 
 	FUNC_OUT();
@@ -336,6 +342,9 @@ gst_nxvideodec_set_property (GObject *pObject, guint propertyId,
 		case PROP_TYPE:
 			pNxvideodec->bufferType = g_value_get_int(pValue);
 			break;
+		case DISABLE_VIDEO_OUT_REORDER:
+			pNxvideodec->bDisableVideoOutReorder = g_value_get_int(pValue);
+			break;
 #endif
 		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID (pObject, propertyId, pPspec);
@@ -360,6 +369,9 @@ gst_nxvideodec_get_property (GObject *pObject, guint propertyId,
 #else
 		case PROP_TYPE:
 			g_value_set_int(pValue, pNxvideodec->bufferType);
+			break;
+		case DISABLE_VIDEO_OUT_REORDER:
+			g_value_set_int(pValue, pNxvideodec->bDisableVideoOutReorder);
 			break;
 #endif
 		default:
@@ -587,7 +599,7 @@ gst_nxvideodec_set_format (GstVideoDecoder *pDecoder, GstVideoCodecState *pState
 			return ret;
 		}
 
-		if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle) )
+		if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle, pNxVideoDec->bDisableVideoOutReorder) )
 		{
 			return FALSE;
 		}
@@ -838,7 +850,7 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 	if( (pNxVideoDec->bIsCodecData == FALSE) && (pNxVideoDec->bIsInitVideoDec == FALSE) )
 	{
 		pNxVideoDec->bIsInitVideoDec = TRUE;
-		if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle) )
+		if( 0 != InitVideoDec(pNxVideoDec->pNxVideoDecHandle, pNxVideoDec->bDisableVideoOutReorder) )
 		{
 			return GST_FLOW_ERROR;
 		}
@@ -877,7 +889,6 @@ gst_nxvideodec_handle_frame (GstVideoDecoder *pDecoder, GstVideoCodecFrame *pFra
 		((pNxVideoDec->negoWidth != pDecHandle->width) || (pNxVideoDec->negoHeight != pDecHandle->height))
 		 )
 	{
-		
 		pNxVideoDec->bIsNegotiate = TRUE;
 		GstVideoCodecState *pOutputState = NULL;
 
