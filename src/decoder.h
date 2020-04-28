@@ -117,6 +117,8 @@ struct _NX_VIDEO_DEC_STRUCT
 	gint64		dtsTimestamp;
 	gint64		ptsTimestamp;
 
+	gint 		bDisableVideoOutReorder;
+
 	gint (*pVideoDecodeFrame)( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 };
 //
@@ -128,7 +130,7 @@ gboolean GetExtraInfo( NX_VIDEO_DEC_STRUCT *pDecHandle, guint8 *pCodecData, gint
 
 //Video Decoder
 NX_VIDEO_DEC_STRUCT *OpenVideoDec();
-gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle );
+gint InitVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle, gint bDisableVideoOutReorder );
 gint VideoDecodeFrame( NX_VIDEO_DEC_STRUCT *pDecHandle, GstBuffer *pGstBuf, NX_V4L2DEC_OUT *pDecOut, gboolean bKeyFrame );
 void CloseVideoDec( NX_VIDEO_DEC_STRUCT *pDecHandle );
 
